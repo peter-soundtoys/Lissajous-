@@ -539,7 +539,9 @@ function updateAudio(){
   const dry      = tail<=0.5 ? 1.0 : 1.0-(tail-0.5)*2.0;
   const wetSend  = tail<=0.5 ? tail*2.0 : 1.0+(tail-0.5)*1.2;
   const fbkRaw   = tail<=0.5 ? tail*2*0.6 : 0.6+(tail-0.5)*2*0.3;
-  const rvbFbk   = Math.min(0.93, fbkRaw*0.95+timeV*0.08);
+  const tailVerbBoost = tail>0.8 ? (tail-0.8)/0.2 : 0; // 0 at 80%, 1 at 100%
+  const rvbFbk   = Math.min(0.97, fbkRaw*0.95+timeV*0.08+tailVerbBoost*0.18);
+  const verbTimeExt = verbTime + tailVerbBoost*6.0;
   const darkening= tail>0.5 ? (tail-0.5)*2 : 0;
   const effectiveTone = Math.max(200, toneFreq*(1-darkening*0.65));
   const masterBoost   = 1.0+Math.max(0,1.0-dry)*0.7;
@@ -555,7 +557,7 @@ function updateAudio(){
 
   inputGainRvb.gain.setTargetAtTime(rvbAmt*wetSend*masterBoost*2.4,ct,0.12);
   verbNodes.forEach(({g},i)=>g.gain.setTargetAtTime(rvbFbk*Math.pow(0.80,i),ct,0.12));
-  verbGain.gain.setTargetAtTime((0.55+verbTime*0.18)*masterBoost,ct,0.12);
+  verbGain.gain.setTargetAtTime((0.55+verbTimeExt*0.18)*masterBoost,ct,0.12);
   verbNodes.forEach(({lpf})=>lpf.frequency.setTargetAtTime(effectiveTone,ct,0.15));
 
   dryGain.gain.setTargetAtTime(dry,ct,0.12);
