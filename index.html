@@ -412,19 +412,17 @@ function drawLEDs(){
 
   for(let i=0;i<N_LEDS;i++) noteLed[i]*=0.85;
   for(let i=0;i<N_LEDS;i++){
+    const br=noteLed[i];
+    if(br<0.01) continue;
     const cx=Math.round(i*ledW+ledW/2),cy=Math.round(TOP_H+LED_H*0.25);
-    const br=Math.max(0.18,noteLed[i]);
     ovX.beginPath();ovX.arc(cx,cy,r,0,Math.PI*2);
-    ovX.fillStyle=`rgba(220,0,0,${br})`;ovX.fill();
+    ovX.fillStyle=`rgba(220,0,0,${br.toFixed(3)})`;ovX.fill();
   }
 
   const litSH=Math.round((state.shSlewVal+1)*0.5*(N_LEDS-1));
-  for(let i=0;i<N_LEDS;i++){
-    const cx=Math.round(i*ledW+ledW/2),cy=Math.round(TOP_H+LED_H*0.75);
-    const on=(i===litSH);
-    ovX.beginPath();ovX.arc(cx,cy,r,0,Math.PI*2);
-    ovX.fillStyle=on?'rgba(220,0,0,1.0)':'rgba(60,0,0,0.5)';ovX.fill();
-  }
+  const cx=Math.round(litSH*ledW+ledW/2),cy=Math.round(TOP_H+LED_H*0.75);
+  ovX.beginPath();ovX.arc(cx,cy,r,0,Math.PI*2);
+  ovX.fillStyle='rgba(220,0,0,0.9)';ovX.fill();
 }
 
 function fireNoteLED(semitones){
