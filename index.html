@@ -33,11 +33,11 @@ const TOP_H   = 48;
 const LED_H   = 18;
 const PITCH_W = 32;
 const FADER_H = 36;
-const BTN_H   = 48;
+const BTN_H   = 28;
 const BOT_H   = FADER_H * 2;
 
 function plotW(){ return W - PITCH_W - Math.round(W/12); }
-function plotH(){ return Math.max(50, H - TOP_H - LED_H - BOT_H - BTN_H - 120); }
+function plotH(){ return Math.max(50, H - TOP_H - LED_H - BOT_H - BTN_H - 48); }
 function plotX(){ return Math.round(W/12); }
 function plotY(){ return TOP_H + LED_H; }
 function botY() { return plotY() + plotH(); }
