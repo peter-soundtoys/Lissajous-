@@ -37,7 +37,7 @@ const BTN_H   = 48;
 const BOT_H   = FADER_H * 2;
 
 function plotW(){ return W - PITCH_W - Math.round(W/12); }
-function plotH(){ return Math.max(50, H - TOP_H - LED_H - BOT_H - BTN_H - 60); }
+function plotH(){ return Math.max(50, H - TOP_H - LED_H - BOT_H - BTN_H - 120); }
 function plotX(){ return Math.round(W/12); }
 function plotY(){ return TOP_H + LED_H; }
 function botY() { return plotY() + plotH(); }
@@ -388,8 +388,8 @@ function wuLine(x0,y0,x1,y1){
 function oscToScreen(xv,yv){
   const pw=plotW(), ph=plotH();
   const renderCx=plotX()+pw*0.5;
-  const renderRx=pw*0.55;
-  const renderRy=ph*0.55;
+  const renderRx=pw*0.42;
+  const renderRy=ph*0.42;
   let x=renderCx+xv*renderRx;
   let y=plotY()+ph*0.5+yv*renderRy;
   const crush=dot3Shape();
@@ -534,14 +534,14 @@ function updateAudio(){
   const verbTime=0.3+timeV*4.5;
   const toneFreq=Math.max(300,8000*(1-timeV*0.96));
   const dlyAmt=Math.min(1,bal*2);
-  const rvbAmt=Math.min(1,(1-bal)*2);
+  const rvbAmt=Math.max(0.35,Math.min(1,(1-bal)*2));
 
   const dry      = tail<=0.5 ? 1.0 : 1.0-(tail-0.5)*2.0;
   const wetSend  = tail<=0.5 ? tail*2.0 : 1.0+(tail-0.5)*1.2;
   const fbkRaw   = tail<=0.5 ? tail*2*0.6 : 0.6+(tail-0.5)*2*0.3;
-  const tailVerbBoost = tail>0.8 ? (tail-0.8)/0.2 : 0; // 0 at 80%, 1 at 100%
-  const rvbFbk   = Math.min(0.97, fbkRaw*0.95+timeV*0.08+tailVerbBoost*0.18);
-  const verbTimeExt = verbTime + tailVerbBoost*6.0;
+  const tailVerbBoost = tail>0.8 ? (tail-0.8)/0.2 : 0;
+  const rvbFbk   = Math.min(0.975, fbkRaw*0.95+timeV*0.12+tailVerbBoost*0.22+0.06);
+  const verbTimeExt = verbTime + tailVerbBoost*8.0;
   const darkening= tail>0.5 ? (tail-0.5)*2 : 0;
   const effectiveTone = Math.max(200, toneFreq*(1-darkening*0.65));
   const masterBoost   = 1.0+Math.max(0,1.0-dry)*0.7;
