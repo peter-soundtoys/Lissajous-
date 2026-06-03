@@ -578,8 +578,10 @@ function frame(ts){
   const subDt=dt/SUBSTEPS;
 
   const lHue=screenLineHue();
-  if(lHue<2){lineR=lineG=lineB=255;}
-  else{const c=hslToRgb(lHue,90,65);lineR=c.r;lineG=c.g;lineB=c.b;}
+  const tailMod=decayVal>0.95?(decayVal-0.95)/0.05:0;
+  const shHueMod=tailMod*state.shSlewVal*180;
+  if(lHue<2&&tailMod<0.01){lineR=lineG=lineB=255;}
+  else{const c=hslToRgb(((lHue+shHueMod)%360+360)%360,90,65);lineR=c.r;lineG=c.g;lineB=c.b;}
 
   scaleIdxF=scaleY()*7;
 
