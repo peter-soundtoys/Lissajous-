@@ -469,6 +469,9 @@ function initAudio(){
   dlyNode=audioCtx.createDelay(3.0); dlyNode.delayTime.value=0.35;
   dlyFdbk=audioCtx.createGain(); dlyFdbk.gain.value=0.4;
   dlyTone=audioCtx.createBiquadFilter(); dlyTone.type='lowpass'; dlyTone.frequency.value=4000;
+  const dlyFbkComp=audioCtx.createDynamicsCompressor();
+  dlyFbkComp.threshold.value=-20;dlyFbkComp.knee.value=6;dlyFbkComp.ratio.value=8;
+  dlyFbkComp.attack.value=0.003;dlyFbkComp.release.value=0.05;
   verbInput=audioCtx.createGain(); verbInput.gain.value=1.0;
   verbGain=audioCtx.createGain(); verbGain.gain.value=0.5;
   [{t:0.031},{t:0.061},{t:0.097},{t:0.139},{t:0.191},{t:0.251},{t:0.323},{t:0.409}].forEach(({t},i)=>{
@@ -483,17 +486,20 @@ function initAudio(){
   wetLimiter.attack.value=0.01;wetLimiter.release.value=0.15;
   const dcBlock=audioCtx.createBiquadFilter();
   dcBlock.type='highpass';dcBlock.frequency.value=20;dcBlock.Q.value=0.5;
+  const masterHPF=audioCtx.createBiquadFilter();
+  masterHPF.type='highpass';masterHPF.frequency.value=40;masterHPF.Q.value=0.5;
   o3Node.connect(foldNode);
   foldNode.connect(gainNode);
   gainNode.connect(vcaGain);
   vcaGain.connect(dryGain);
   vcaGain.connect(inputGainDly);
   vcaGain.connect(inputGainRvb);
-  inputGainDly.connect(dlyNode);dlyNode.connect(dlyTone);dlyTone.connect(dlyFdbk);dlyFdbk.connect(dlyNode);dlyTone.connect(wetGain);
+  inputGainDly.connect(dlyNode);dlyNode.connect(dlyTone);dlyTone.connect(dlyFbkComp);dlyFbkComp.connect(dlyFdbk);dlyFdbk.connect(dlyNode);dlyTone.connect(wetGain);
   inputGainRvb.connect(verbInput);verbGain.connect(wetGain);
   wetGain.connect(dcBlock);
   dcBlock.connect(wetLimiter);
-  dryGain.connect(audioCtx.destination);wetLimiter.connect(audioCtx.destination);
+  dryGain.connect(masterHPF);wetLimiter.connect(masterHPF);
+  masterHPF.connect(audioCtx.destination);
   o3Node.frequency.value=440;o3Node.start();
 }
 function startAudio(){if(!audioCtx)initAudio();if(audioCtx.state!=='running')audioCtx.resume();}
@@ -1072,7 +1078,10 @@ window.addEventListener('mouseup',e=>{
   mTgt=null;
 });
 
-resize(); initDots(); requestAnimationFrame(frame);
+resize(); initDots();
+if(!PRESETS[0]){ PRESETS[0]=captureState(); saveToStorage(); }
+activePresetSlot=0;
+requestAnimationFrame(frame);
 
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('sw.js').catch(()=>{});
