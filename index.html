@@ -536,32 +536,29 @@ function updateAudio(){
   const tail=decayVal;
 
   const bal=timeBalance();
-  const timeV=1-timeVal();
-  const verbTime=0.3+timeV*4.5;
-  const toneFreq=Math.max(300,8000*(1-timeV*0.96));
-  const dlyAmt=Math.min(1,bal*2);
-  const rvbAmt=Math.max(0.7,Math.min(1,(1-bal)*2));
+  const lengthT=1-timeVal();                        // Y: 0=short(bottom), 1=long(top)
+  const fbkXOff=(bal-0.5)*0.3;                     // X: −0.15..+0.15 feedback offset
 
+  const toneFreq=Math.max(400,1000+shapeFader*7000); // tone from shape fader (dark→bright)
   const dry      = tail<=0.5 ? 1.0 : 1.0-(tail-0.5)*2.0;
   const wetSend  = tail<=0.5 ? tail*2.0 : 1.0+(tail-0.5)*1.2;
-  const fbkRaw   = tail<=0.5 ? tail*2*0.6 : 0.6+(tail-0.5)*2*0.3;
-  const tailVerbBoost = tail>0.8 ? (tail-0.8)/0.2 : 0;
-  const rvbFbk   = Math.min(0.975, fbkRaw*0.95+timeV*0.12+tailVerbBoost*0.22+0.06);
-  const verbTimeExt = verbTime + tailVerbBoost*8.0;
   const darkening= tail>0.5 ? (tail-0.5)*2 : 0;
-  const effectiveTone = Math.max(200, toneFreq*(1-darkening*0.65));
+  const effectiveTone = Math.max(200, toneFreq*(1-darkening*0.35));
   const masterBoost   = 1.0+Math.max(0,1.0-dry)*0.7;
 
+  // Y = length, X = feedback offset
+  const rvbFbk = Math.min(0.975, Math.max(0.1, 0.25+lengthT*0.55+fbkXOff));
   const dlyTimeSec=Math.max(0.02,Math.min(3,8/state.clkFreq));
   const dlyTimeNorm=Math.min(1,(dlyTimeSec-0.02)/2.98);
-  const dlyFbkScaled=Math.min(0.9, fbkRaw*(1-dlyTimeNorm*0.55));
+  const dlyFbkRaw=Math.max(0, 0.15+lengthT*0.60+fbkXOff);
+  const dlyFbkScaled=Math.min(0.92, dlyFbkRaw*(1-dlyTimeNorm*0.55));
 
-  inputGainDly.gain.setTargetAtTime(dlyAmt*wetSend*masterBoost*1.4,ct,0.12);
+  inputGainDly.gain.setTargetAtTime(wetSend*masterBoost*1.4,ct,0.12);
   dlyFdbk.gain.setTargetAtTime(dlyFbkScaled,ct,0.2);
   dlyNode.delayTime.setTargetAtTime(dlyTimeSec,ct,0.35);
   dlyTone.frequency.setTargetAtTime(effectiveTone,ct,0.15);
 
-  inputGainRvb.gain.setTargetAtTime(rvbAmt*wetSend*masterBoost*2.4,ct,0.12);
+  inputGainRvb.gain.setTargetAtTime(wetSend*masterBoost*2.4,ct,0.12);
   verbNodes.forEach(({g},i)=>g.gain.setTargetAtTime(rvbFbk*Math.pow(0.80,i),ct,0.12));
   verbGain.gain.setTargetAtTime(0.5,ct,0.12);
   verbFbkGain.gain.setTargetAtTime(rvbFbk/2.08,ct,0.12);
