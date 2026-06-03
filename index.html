@@ -469,9 +469,6 @@ function initAudio(){
   dlyNode=audioCtx.createDelay(3.0); dlyNode.delayTime.value=0.35;
   dlyFdbk=audioCtx.createGain(); dlyFdbk.gain.value=0.4;
   dlyTone=audioCtx.createBiquadFilter(); dlyTone.type='lowpass'; dlyTone.frequency.value=4000;
-  const dlyFbkComp=audioCtx.createDynamicsCompressor();
-  dlyFbkComp.threshold.value=-20;dlyFbkComp.knee.value=6;dlyFbkComp.ratio.value=8;
-  dlyFbkComp.attack.value=0.003;dlyFbkComp.release.value=0.05;
   verbInput=audioCtx.createGain(); verbInput.gain.value=1.0;
   verbGain=audioCtx.createGain(); verbGain.gain.value=0.5;
   [{t:0.031},{t:0.061},{t:0.097},{t:0.139},{t:0.191},{t:0.251},{t:0.323},{t:0.409}].forEach(({t},i)=>{
@@ -494,7 +491,7 @@ function initAudio(){
   vcaGain.connect(dryGain);
   vcaGain.connect(inputGainDly);
   vcaGain.connect(inputGainRvb);
-  inputGainDly.connect(dlyNode);dlyNode.connect(dlyTone);dlyTone.connect(dlyFbkComp);dlyFbkComp.connect(dlyFdbk);dlyFdbk.connect(dlyNode);dlyTone.connect(wetGain);
+  inputGainDly.connect(dlyNode);dlyNode.connect(dlyTone);dlyTone.connect(dlyFdbk);dlyFdbk.connect(dlyNode);dlyTone.connect(wetGain);
   inputGainRvb.connect(verbInput);verbGain.connect(wetGain);
   wetGain.connect(dcBlock);
   dcBlock.connect(wetLimiter);
