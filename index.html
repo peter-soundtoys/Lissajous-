@@ -386,10 +386,10 @@ function wuLine(x0,y0,x1,y1){
   }
 }
 function oscToScreen(xv,yv){
-  const pw=plotW(),ph=plotH();
-  const renderCx=plotX()+pw*0.5-Math.round(W/48);
-  const renderRx=(pw+Math.round(W/12))*0.40;
-  const renderRy=ph*0.40;
+  const ph=plotH();
+  const renderCx=W*0.5;
+  const renderRx=W*0.5-2;
+  const renderRy=ph*0.5;
   let x=renderCx+xv*renderRx;
   let y=plotY()+ph*0.5+yv*renderRy;
   const crush=dot3Shape();
@@ -635,8 +635,10 @@ function frame(ts){
       const st2=quantize(bs+xv*0.5*24,idx2)+rootOffset2;
       fireNoteLED(st2);
       const sp=oscToScreen(xv,yv);
-      for(let dy=-3;dy<=3;dy++)for(let dx=-3;dx<=3;dx++)
-        if(dx*dx+dy*dy<=9)plotPx(sp.x+dx,sp.y+dy,1.0,255,255,255);
+      for(let dy=-8;dy<=8;dy++)for(let dx=-8;dx<=8;dx++){
+        const d2=dx*dx+dy*dy;
+        if(d2<=64){const br=Math.exp(-d2/12);plotPx(sp.x+dx,sp.y+dy,br,255,255,255);}
+      }
     }
     state.shSlewVal=state.shVal; o2Out=yv;
 
