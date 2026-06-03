@@ -408,23 +408,22 @@ const noteLed=new Float32Array(N_LEDS);
 
 function drawLEDs(){
   const ledW=Math.floor(W/N_LEDS);
-  const r2=Math.min(LED_H*0.3,ledW*0.55);
-  const ri=Math.ceil(r2*0.8);
+  const r=Math.min(LED_H*0.3,ledW*0.55)*0.8;
 
   for(let i=0;i<N_LEDS;i++) noteLed[i]*=0.85;
   for(let i=0;i<N_LEDS;i++){
     const cx=Math.round(i*ledW+ledW/2),cy=Math.round(TOP_H+LED_H*0.25);
     const br=Math.max(0.18,noteLed[i]);
-    for(let dy=-ri;dy<=ri;dy++)for(let dx=-ri;dx<=ri;dx++)
-      if(dx*dx+dy*dy<=r2*r2*0.64)plotPx(cx+dx,cy+dy,br,Math.round(220*br),0,0);
+    ovX.beginPath();ovX.arc(cx,cy,r,0,Math.PI*2);
+    ovX.fillStyle=`rgba(220,0,0,${br})`;ovX.fill();
   }
 
   const litSH=Math.round((state.shSlewVal+1)*0.5*(N_LEDS-1));
   for(let i=0;i<N_LEDS;i++){
     const cx=Math.round(i*ledW+ledW/2),cy=Math.round(TOP_H+LED_H*0.75);
     const on=(i===litSH);
-    for(let dy=-ri;dy<=ri;dy++)for(let dx=-ri;dx<=ri;dx++)
-      if(dx*dx+dy*dy<=r2*r2*0.64)plotPx(cx+dx,cy+dy,on?1.0:0.2,on?220:30,0,0);
+    ovX.beginPath();ovX.arc(cx,cy,r,0,Math.PI*2);
+    ovX.fillStyle=on?'rgba(220,0,0,1.0)':'rgba(60,0,0,0.5)';ovX.fill();
   }
 }
 
@@ -592,7 +591,7 @@ function frame(ts){
 
   scaleIdxF=scaleY()*7;
 
-  applyDecay();drawLEDs();
+  applyDecay();
 
   const clkX=dotShape(state.d1);
   const euclSteps=16;
@@ -644,11 +643,6 @@ function frame(ts){
       const bs=12*Math.log2(Math.max(20,bf)/440);
       const st2=quantize(bs+xv*0.5*24,idx2)+rootOffset2;
       fireNoteLED(st2);
-      const sp=oscToScreen(xv,yv);
-      for(let dy=-8;dy<=8;dy++)for(let dx=-8;dx<=8;dx++){
-        const d2=dx*dx+dy*dy;
-        if(d2<=64){const br=Math.exp(-d2/12);plotPx(sp.x+dx,sp.y+dy,br,255,255,255);}
-      }
     }
     state.shSlewVal=state.shVal; o2Out=yv;
 
@@ -688,6 +682,7 @@ function frame(ts){
 // ── Overlay ───────────────────────────────────────────────────────────────────
 function drawOverlay(){
   ovX.clearRect(0,0,W,H);
+  drawLEDs();
   const pw=plotW(),ph=plotH(),py=plotY(),bt=botY(),px2=plotX();
 
   // ── Top buttons ──
