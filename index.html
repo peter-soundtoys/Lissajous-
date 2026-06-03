@@ -172,10 +172,15 @@ function checkPresetHold(){
   }
   if(presetOpen) presetFlashT++;
 }
+function presetGridRect(){
+  const gh=Math.min(Math.round(H*0.44), H-TOP_H-LED_H-8);
+  return{x:0,y:H-gh,w:W,h:gh};
+}
 function handlePresetGridTap(x,y){
-  const cols=4,rows=4,cw=plotW()/cols,ch=plotH()/rows;
-  const col=Math.floor((x-plotX())/cw);
-  const row=Math.floor((y-plotY())/ch);
+  const g=presetGridRect();
+  const cols=4,rows=4,cw=g.w/cols,ch=g.h/rows;
+  const col=Math.floor((x-g.x)/cw);
+  const row=Math.floor((y-g.y)/ch);
   if(col<0||col>=cols||row<0||row>=rows) return;
   const idx=row*cols+col;
   if(!presetAction) return;
@@ -337,12 +342,12 @@ function applyDecay(){
     const skewPx=Math.floor(applyDecay.skewAcc);
     applyDecay.skewAcc-=skewPx;
     if(skewPx>0){
-      const py_=plotY()|0, ph_=plotH()|0, px_=plotX()|0, pw_=plotW()|0;
+      const px_=plotX()|0, pw_=plotW()|0, py_=plotY()|0, ph_=plotH()|0;
       const cx=px_+pw_*0.5, cy=py_+ph_*0.5;
       const tmp=new Uint8ClampedArray(buf8.length);
       tmp.set(buf8);
-      for(let y=py_;y<py_+ph_;y++){
-        for(let x=px_;x<px_+pw_;x++){
+      for(let y=0;y<H;y++){
+        for(let x=0;x<W;x++){
           const dx=x-cx, dy=y-cy;
           const scale=skewAmt*0.015;
           const sx=cx+dx/(1+scale);
@@ -706,15 +711,16 @@ function drawOverlay(){
   }
 
   if(presetOpen){
-    // ── Preset grid ──
+    // ── Preset grid at bottom (Lissajous stays visible above) ──
+    const g=presetGridRect();
     ovX.fillStyle='rgba(0,0,0,0.88)';
-    ovX.fillRect(px2,py,pw,ph);
+    ovX.fillRect(g.x,g.y,g.w,g.h);
 
-    const cols=4,rows=4,cw=pw/cols,ch=ph/rows;
+    const cols=4,rows=4,cw=g.w/cols,ch=g.h/rows;
     for(let r=0;r<rows;r++){
       for(let c=0;c<cols;c++){
         const idx=r*cols+c;
-        const cx=px2+c*cw, cy=py+r*ch;
+        const cx=g.x+c*cw, cy=g.y+r*ch;
         const hasPre=!!PRESETS[idx];
         const isConfirm=(presetConfirmSlot===idx);
         const flashOn=Math.floor(presetFlashT/5)%2===0;
@@ -762,7 +768,7 @@ function drawOverlay(){
     // hint text
     if(!presetAction){
       ovX.fillStyle='rgba(255,255,255,0.22)';ovX.font='8px monospace';ovX.textAlign='center';
-      ovX.fillText('tap SAVE or LOAD above',px2+pw/2,py+ph-10);
+      ovX.fillText('tap SAVE or LOAD above',g.x+g.w/2,g.y+g.h-10);
     }
 
     return; // skip the rest of the overlay when preset page is open
@@ -1009,7 +1015,8 @@ function hitTest(x,y){
   if(y<TOP_H) return 'topBtn';
   if(y<TOP_H+LED_H) return null;
   if(presetOpen){
-    if(y>=py_&&y<bt_) return 'presetGrid';
+    const g=presetGridRect();
+    if(y>=g.y&&y<g.y+g.h&&x>=g.x&&x<g.x+g.w) return 'presetGrid';
     return null;
   }
   if(x>=W-PITCH_W&&y>=py_&&y<bt_) return 'pitchStrip';
@@ -1084,6 +1091,7 @@ window.addEventListener('mouseup',e=>{
 
 resize(); initDots();
 if(!PRESETS[0]){ PRESETS[0]=captureState(); saveToStorage(); }
+else { applyStateObj(PRESETS[0]); }
 activePresetSlot=0;
 requestAnimationFrame(frame);
 
