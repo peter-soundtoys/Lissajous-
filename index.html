@@ -438,6 +438,7 @@ let audioCtx=null,o3Node=null,gainNode=null,vcaGain=null;
 let inputGainDly=null,inputGainRvb=null,dryGain=null,wetGain=null;
 let dlyNode=null,dlyFdbk=null,dlyTone=null,foldNode=null;
 let verbNodes=[],verbGain=null,verbInput=null,wetLimiter=null;
+let verbFbkGain=null,verbFbkDelay=null;
 const N_HARM=32; let lastAudioShape=-1;
 
 function makeFoldCurve(folds){
@@ -476,6 +477,8 @@ function initAudio(){
   dlyTone=audioCtx.createBiquadFilter(); dlyTone.type='lowpass'; dlyTone.frequency.value=4000;
   verbInput=audioCtx.createGain(); verbInput.gain.value=1.0;
   verbGain=audioCtx.createGain(); verbGain.gain.value=0.5;
+  verbFbkGain=audioCtx.createGain(); verbFbkGain.gain.value=0.48;
+  verbFbkDelay=audioCtx.createDelay(0.5); verbFbkDelay.delayTime.value=0.131;
   [{t:0.031},{t:0.061},{t:0.097},{t:0.139},{t:0.191},{t:0.251},{t:0.323},{t:0.409}].forEach(({t},i)=>{
     const d=audioCtx.createDelay(2.0);d.delayTime.value=t;
     const g=audioCtx.createGain();g.gain.value=0.6*Math.pow(0.75,i);
@@ -498,6 +501,7 @@ function initAudio(){
   vcaGain.connect(inputGainRvb);
   inputGainDly.connect(dlyNode);dlyNode.connect(dlyTone);dlyTone.connect(dlyFdbk);dlyFdbk.connect(dlyNode);dlyTone.connect(wetGain);
   inputGainRvb.connect(verbInput);verbGain.connect(wetGain);
+  verbGain.connect(verbFbkGain);verbFbkGain.connect(verbFbkDelay);verbFbkDelay.connect(verbInput);
   wetGain.connect(dcBlock);
   dcBlock.connect(wetLimiter);
   dryGain.connect(masterHPF);wetLimiter.connect(masterHPF);
@@ -539,7 +543,7 @@ function updateAudio(){
   const verbTime=0.3+timeV*4.5;
   const toneFreq=Math.max(300,8000*(1-timeV*0.96));
   const dlyAmt=Math.min(1,bal*2);
-  const rvbAmt=Math.max(0.35,Math.min(1,(1-bal)*2));
+  const rvbAmt=Math.max(0.7,Math.min(1,(1-bal)*2));
 
   const dry      = tail<=0.5 ? 1.0 : 1.0-(tail-0.5)*2.0;
   const wetSend  = tail<=0.5 ? tail*2.0 : 1.0+(tail-0.5)*1.2;
@@ -562,7 +566,8 @@ function updateAudio(){
 
   inputGainRvb.gain.setTargetAtTime(rvbAmt*wetSend*masterBoost*2.4,ct,0.12);
   verbNodes.forEach(({g},i)=>g.gain.setTargetAtTime(rvbFbk*Math.pow(0.80,i),ct,0.12));
-  verbGain.gain.setTargetAtTime((0.55+verbTimeExt*0.18)*masterBoost,ct,0.12);
+  verbGain.gain.setTargetAtTime(0.5,ct,0.12);
+  verbFbkGain.gain.setTargetAtTime(rvbFbk/2.08,ct,0.12);
   verbNodes.forEach(({lpf})=>lpf.frequency.setTargetAtTime(effectiveTone,ct,0.15));
 
   dryGain.gain.setTargetAtTime(dry,ct,0.12);
