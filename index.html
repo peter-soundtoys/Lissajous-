@@ -578,10 +578,8 @@ function frame(ts){
   const subDt=dt/SUBSTEPS;
 
   const lHue=screenLineHue();
-  const tailMod=decayVal>0.95?(decayVal-0.95)/0.05:0;
-  const shHueMod=tailMod*state.shSlewVal*180;
-  if(lHue<2&&tailMod<0.01){lineR=lineG=lineB=255;}
-  else{const c=hslToRgb(((lHue+shHueMod)%360+360)%360,90,65);lineR=c.r;lineG=c.g;lineB=c.b;}
+  if(lHue<2){lineR=lineG=lineB=255;}
+  else{const c=hslToRgb(lHue,90,65);lineR=c.r;lineG=c.g;lineB=c.b;}
 
   scaleIdxF=scaleY()*7;
 
@@ -637,6 +635,9 @@ function frame(ts){
       const bs=12*Math.log2(Math.max(20,bf)/440);
       const st2=quantize(bs+xv*0.5*24,idx2)+rootOffset2;
       fireNoteLED(st2);
+      const sp=oscToScreen(xv,yv);
+      for(let dy=-3;dy<=3;dy++)for(let dx=-3;dx<=3;dx++)
+        if(dx*dx+dy*dy<=9)plotPx(sp.x+dx,sp.y+dy,1.0,255,0,0);
     }
     state.shSlewVal=state.shVal; o2Out=yv;
 
