@@ -24,18 +24,17 @@ canvas { display:block; position:absolute; top:0; left:0; }
 <script>
 const bgC=document.getElementById('bg'), ovC=document.getElementById('ov');
 const bgX=bgC.getContext('2d'), ovX=ovC.getContext('2d');
-// scratch canvas: phosphor trail buffer
 const scrC=document.createElement('canvas');
 const scrX=scrC.getContext('2d');
 let W=0,H=0,imgData,buf8;
 
 // ── Layout ────────────────────────────────────────────────────────────────────
 const TOP_H   = 48;
-const LED_H   = 18;   // two LED rows
-const PITCH_W = 32;   // right pitch strip
-const FADER_H = 36;   // each horizontal fader row height
+const LED_H   = 18;
+const PITCH_W = 32;
+const FADER_H = 36;
 const BTN_H   = 48;
-const BOT_H   = FADER_H * 2; // two fader rows
+const BOT_H   = FADER_H * 2;
 
 function plotW(){ return W - PITCH_W - Math.round(W/12); }
 function plotH(){ return Math.max(50, H - TOP_H - LED_H - BOT_H - BTN_H - 60); }
@@ -53,7 +52,7 @@ function resize(){
 
 window.addEventListener('resize',()=>{ resize(); initDots(); });
 
-// ── Module system — 7 total (4 bottom + 3 top) ───────────────────────────────
+// ── Module system ─────────────────────────────────────────────────────────────
 const BOTTOM_MODS=[
   {key:'lfo',label:'LFO'},
   {key:'clk',label:'CLK'},
@@ -67,11 +66,7 @@ const TOP_MODS=[
 ];
 
 const MODULE_DOT={lfo:'d0',clk:'d1',vco:'d3',env:'d4',screen:'ds',time:'dt',scale:'dsc'};
-
 let activeModule='lfo';
-
-function isTopMod(key){ return TOP_MODS.some(m=>m.key===key); }
-function isBottomMod(key){ return BOTTOM_MODS.some(m=>m.key===key); }
 
 function selectModule(key){
   activeModule=key;
@@ -90,29 +85,22 @@ let scaleAug=0.0;
 let scaleIdxF=0.0;
 
 function getScaleIdx(){ return Math.max(0,Math.min(7,Math.round(scaleIdxF))); }
-
-// Scale variant from x fader: 0=pure, 0.25=pentatonic, 0.5=+b7, 0.75=+#4, 1=lydian dominant(b7+#4)
-function scaleVariant(){ return Math.round(scaleX()*4); } // 0..4
+function scaleVariant(){ return Math.round(scaleX()*4); }
 
 function applyVariant(sc, variant){
   let notes=new Set(sc);
   if(variant===1){
-    // pentatonic subset: remove scale degrees 3 (idx 3) and 6 (idx 6) if present
-    // remove the 4th and 7th scale degrees (positions 3 and 6 in diatonic scales)
     const arr=[...notes].sort((a,b)=>a-b);
     if(arr.length>=7){notes.delete(arr[3]);notes.delete(arr[6]);}
     else if(arr.length>=5){notes.delete(arr[3]);}
   } else if(variant===2){
-    // add b7: flatten the 7th (11→10, 8→7 etc — find highest note and flatten by 1)
     const arr=[...notes].sort((a,b)=>a-b);
     const seventh=arr[arr.length-1];
     if(seventh>0){notes.delete(seventh);notes.add((seventh-1+12)%12);}
   } else if(variant===3){
-    // raise 4th (lydian): find the 4th scale degree and raise by 1
     const arr=[...notes].sort((a,b)=>a-b);
     if(arr.length>=4){notes.delete(arr[3]);notes.add((arr[3]+1)%12);}
   } else if(variant===4){
-    // lydian dominant: b7 + #4
     const arr=[...notes].sort((a,b)=>a-b);
     const seventh=arr[arr.length-1];
     if(seventh>0){notes.delete(seventh);notes.add((seventh-1+12)%12);}
@@ -131,7 +119,7 @@ function quantize(st,idx){
   return oct*12+best;
 }
 
-// ── Bloom ring buffer — stores recent screen positions for bilateral taper ───
+// ── State ─────────────────────────────────────────────────────────────────────
 const BLOOM_BUF=16;
 const bloomBufX=new Float32Array(BLOOM_BUF);
 const bloomBufY=new Float32Array(BLOOM_BUF);
@@ -152,13 +140,55 @@ const state={
 };
 
 let shapeFader=0.0,pitchFader=0.5,decayVal=0.0,xfadeVal=0.0,auxFader=0.5;
-let clkVisShape=0.50; // CLK default x50
+let clkVisShape=0.50;
 const vel={d0:{vx:0,vy:0},d1:{vx:0,vy:0},d3:{vx:0,vy:0},d4:{vx:0,vy:0},
            ds:{vx:0,vy:0},dt:{vx:0,vy:0},dsc:{vx:0,vy:0}};
 
 function selectedDot(){ return MODULE_DOT[activeModule]||null; }
 
 // ── Preset system ─────────────────────────────────────────────────────────────
+let PRESETS = new Array(16).fill(null);
+(function(){
+  try{
+    const s=localStorage.getItem('lissajous-presets');
+    if(s) JSON.parse(s).forEach((p,i)=>{ if(i<16&&p) PRESETS[i]=p; });
+  }catch(e){}
+})();
+function saveToStorage(){
+  try{ localStorage.setItem('lissajous-presets',JSON.stringify(PRESETS)); }catch(e){}
+}
+
+let presetOpen=false, presetAction=null, presetConfirmSlot=-1;
+let presetHolding=false, presetHoldStart=0, presetHoldTimer=null;
+let presetFlashT=0;
+let mouseDownTime=0;
+const PRESET_HOLD_MS=800;
+
+function openPresets(){ presetOpen=true; presetAction=null; presetConfirmSlot=-1; }
+function closePresets(){ presetOpen=false; presetAction=null; presetConfirmSlot=-1; }
+function checkPresetHold(){
+  if(presetHolding && Date.now()-presetHoldStart>=PRESET_HOLD_MS){
+    presetHolding=false; openPresets();
+  }
+  if(presetOpen) presetFlashT++;
+}
+function handlePresetGridTap(x,y){
+  const cols=4,rows=4,cw=plotW()/cols,ch=plotH()/rows;
+  const col=Math.floor((x-plotX())/cw);
+  const row=Math.floor((y-plotY())/ch);
+  if(col<0||col>=cols||row<0||row>=rows) return;
+  const idx=row*cols+col;
+  if(!presetAction) return;
+  if(presetConfirmSlot===idx){
+    if(presetAction==='save'){ PRESETS[idx]=captureState(); saveToStorage(); }
+    else if(presetAction==='load' && PRESETS[idx]) applyStateObj(PRESETS[idx]);
+    closePresets();
+  } else {
+    if(presetAction==='load' && !PRESETS[idx]) return; // empty slot, nothing to load
+    presetConfirmSlot=idx;
+  }
+}
+
 function captureState(){
   return {
     d0:{sx:state.d0.sx,sy:state.d0.sy},
@@ -189,45 +219,15 @@ function applyStateObj(p){
   scaleIdxF=p.scaleIdxF??scaleIdxF;
 }
 
-const PRESETS = [null,null,null,null];
-
-// ── Preset hold state machine ─────────────────────────────────────────────────
-const LOAD_MS=1000,EXPORT_MS=3000,INACTIVITY_MS=3000;
-let pm={phase:'idle',btnIdx:-1,holdStart:0,stillHolding:false,lastTouch:0,flashT:0,exportJSON:'',confirmed:false};
-function resetPM(){pm.phase='idle';pm.btnIdx=-1;pm.stillHolding=false;pm.exportJSON='';pm.confirmed=false;pm.flashT=0;}
-function tickPM(){
-  if(pm.phase!=='idle'&&!pm.stillHolding&&Date.now()-pm.lastTouch>INACTIVITY_MS){resetPM();return;}
-  if(pm.phase==='idle'&&!pm.stillHolding)return;
-  const el=Date.now()-pm.holdStart;
-  if(pm.stillHolding){
-    if(pm.phase==='idle'&&el>=LOAD_MS){pm.phase='load';pm.lastTouch=Date.now();}
-    if(pm.phase==='load'&&el>=EXPORT_MS){pm.phase='export';pm.lastTouch=Date.now();}
-  }
-  pm.flashT++;
-}
-function pmBtnColor(i){
-  if(pm.phase==='idle'||pm.btnIdx!==i)return null;
-  const on=Math.floor(pm.flashT/(pm.phase==='export'?1:3))%2===0;
-  return pm.phase==='export'?(on?'rgba(255,30,30,0.95)':'rgba(255,255,255,0.9)'):(on?'rgba(180,0,0,0.9)':'rgba(40,0,0,0.5)');
-}
-
+// ── Dot helpers ───────────────────────────────────────────────────────────────
 function initDots(){
   const px=plotX(),py=plotY(),pw=plotW(),ph=plotH();
-  // Convention: x=0 left, x=100 right; y=0 bottom, y=100 top
-  // sy = py + ph*(1 - y/100)
-  // LFO x100 y100
   state.d0.sx=px+pw*1.00; state.d0.sy=py+ph*(1-1.00);
-  // CLK x50 y50
   state.d1.sx=px+pw*0.50; state.d1.sy=py+ph*(1-0.50);
-  // VCO x20 y60
   state.d3.sx=px+pw*0.20; state.d3.sy=py+ph*(1-0.60);
-  // ENV x100 y75
   state.d4.sx=px+pw*1.00; state.d4.sy=py+ph*(1-0.75);
-  // SCREEN x20 y0
   state.ds.sx=px+pw*0.20; state.ds.sy=py+ph*(1-0.00);
-  // TIME x95 y80
   state.dt.sx=px+pw*0.95; state.dt.sy=py+ph*(1-0.80);
-  // SCALE x0 yDIM: DIM=index5, scaleY()=(sy-py)/ph, inverted: sy=py+ph*(1-5/7)
   state.dsc.sx=px+pw*0.00; state.dsc.sy=py+ph*(1-5/7);
   const sd=selectedDot(); if(sd)syncFadersFromDot(sd);
 }
@@ -236,44 +236,20 @@ function dotShape(d){ return Math.max(0,Math.min(1,(d.sx-plotX())/plotW())); }
 function dotFreq(d){ const ny=Math.max(0,Math.min(1,(d.sy-plotY())/plotH())); return FREQ_MIN*Math.pow(FREQ_MAX/FREQ_MIN,Math.pow(1-ny,0.55)); }
 function lfoFreq(d){ const ny=Math.max(0,Math.min(1,(d.sy-plotY())/plotH())); return FREQ_MIN*Math.pow(LFO_FREQ_MAX/FREQ_MIN,Math.pow(1-ny,0.55)); }
 function dot3Shape(){ return dotShape(state.d3); }
-function dot3Freq(){ const ny=Math.max(0,Math.min(1,(state.d3.sy-plotY())/plotH())); return 20*Math.pow(2000/20,1-ny); }
 
-// ENV dot: x = peak/rest, y = rate — standard dot mapping
 function envX(){ return dotShape(state.d4); }
 function envY(){ return Math.max(0,Math.min(1,(state.d4.sy-plotY())/plotH())); }
-// ENV timing: fully CLK-derived
-// Y=0%: trigger=clk/64, decay=1×clkPeriod
-// Y=50%: trigger=clk/1, decay=1×clkPeriod
-// Y=100%: trigger=clk×64, decay=64×clkPeriod
-function envMultiplier(){
-  const y=1-envY(); // y=0(top/slow)=1, y=1(bottom/fast)=0 — invert so top=slow
-  // exponential: 0→1/64, 0.5→1, 1→64 using pow(64, y*2-1)
-  return Math.pow(12, y*2-1); // range: 1/12→12
-}
-function envRateSec(){
-  // decay = clkPeriod × multiplier
-  const clkPeriod=1/Math.max(0.001,state.clkFreq);
-  return clkPeriod*envMultiplier();
-}
-function envTrigDivider(){
-  // trigger every N raw CLK cycles
-  // Y=0: N=64, Y=50: N=1, Y=100: N=64 (same as decay mult)
-  return Math.max(1,Math.round(envMultiplier()));
-}
-// ENV min/max from x — full fader = former 50-100% range:
-// x=0: min=1, max=1 (full sustain/no decay)
-// x=0.5: min=0.5, max=1
-// x=1: min=0, max=1 (full decay to silence)
+function envMultiplier(){ const y=1-envY(); return Math.pow(12, y*2-1); }
+function envRateSec(){ const clkPeriod=1/Math.max(0.001,state.clkFreq); return clkPeriod*envMultiplier(); }
+function envTrigDivider(){ return Math.max(1,Math.round(envMultiplier())); }
 function envMin(){ return Math.max(0, 1-envX()); }
 function envMax(){ return 1.0; }
-// Downward curve: below y=0.5 = expo, above y=0.5 = log, blended
 function envCurve(phase,eMin,eMax){
   const p=Math.max(0,Math.min(1,phase));
-  const y=1-envY(); // 0=top(slow), 1=bottom(fast) — same inversion as envRateSec
-  // y<0.5: expo (pow 4), y>0.5: log (1 - pow(p, 0.25))
+  const y=1-envY();
   const expo=Math.pow(1-p,4);
   const logC=1-Math.pow(p,0.2);
-  const blend=Math.max(0,Math.min(1,(y-0.5)*2)); // 0 at y=0.5, 1 at y=1
+  const blend=Math.max(0,Math.min(1,(y-0.5)*2));
   const curve=expo*(1-blend)+logC*blend;
   return eMin+(eMax-eMin)*Math.max(0,Math.min(1,curve));
 }
@@ -295,7 +271,6 @@ function timeBalance(){ return dotShape(state.dt); }
 function timeVal(){ return Math.max(0,Math.min(1,(state.dt.sy-plotY())/plotH())); }
 function scaleX(){ return dotShape(state.dsc); }
 function scaleY(){ return Math.max(0,Math.min(1,(state.dsc.sy-plotY())/plotH())); }
-// root note offset: 0..11 semitones across x axis (stepped)
 function scaleRootOffset(){ return Math.round(scaleX()*11); }
 
 function syncFadersFromDot(key){
@@ -308,6 +283,7 @@ function syncDotFromFaders(key){
   state[key].sy=plotY()+(1-pitchFader)*plotH();
 }
 
+// ── Waveforms ─────────────────────────────────────────────────────────────────
 function wave(ph,shape,ramp){
   const s=Math.sin(ph);
   const tri=(2/Math.PI)*Math.asin(Math.max(-1,Math.min(1,s)));
@@ -317,26 +293,15 @@ function wave(ph,shape,ramp){
   else{const k=(shape-0.5)*2;return tri*(1-k)+saw*k;}
 }
 
-// LFO morph: xfade across 6 waves over shape=0..1
-// 0=half-freq sine, 0.2=sine, 0.4=tri, 0.6=square, 0.8=3-step saw↓, 1=smooth saw↓
 function lfoWave(ph,shape){
-  const n=((ph%(2*Math.PI))+2*Math.PI)%(2*Math.PI); // 0..2π
-
-  // W0: half-frequency sine
+  const n=((ph%(2*Math.PI))+2*Math.PI)%(2*Math.PI);
   const w0=Math.sin(ph*0.5);
-  // W1: sine
   const w1=Math.sin(ph);
-  // W2: triangle
   const w2=(2/Math.PI)*Math.asin(Math.max(-1,Math.min(1,w1)));
-  // W3: square (soft via tanh to avoid harsh clicks)
   const w3=Math.tanh(Math.sin(ph)*8);
-  // W4: 3-step staircase saw down — quantize downward saw to 3 levels
-  const sawD=1-n/Math.PI; // smooth saw↓, range ±1
-  const w4=Math.round(sawD*1.5)/1.5; // 3 levels: +1, 0, -1 (quantize to thirds)
-  // W5: smooth saw down
+  const sawD=1-n/Math.PI;
+  const w4=Math.round(sawD*1.5)/1.5;
   const w5=sawD;
-
-  // 5 segments across 0..1
   const seg=shape*5;
   const i=Math.min(4,Math.floor(seg));
   const k=seg-i;
@@ -359,14 +324,12 @@ let lineR=255,lineG=255,lineB=255;
 function applyDecay(){
   const tail=0.3+Math.min(1,decayVal)*5.7;
   const d256=Math.round(Math.exp(-Math.log(254)/(tail*60))*256);
-  // at zero tail, force full clear to eliminate ghost lines
   const decay=decayVal<=0.01?0:d256;
   if(decay>=256)return;
   const tHue=screenTrailHue();
   let tr=0,tg=0,tb=0;
   if(tHue>1){const c=hslToRgb(tHue,80,12);tr=c.r;tg=c.g;tb=c.b;}
 
-  // tail skew: past 50%, spread pixels radially outward from plot center
   const skewAmt=decayVal>0.5?(decayVal-0.5)*2:0;
   if(skewAmt>0.001){
     if(!applyDecay.skewAcc)applyDecay.skewAcc=0;
@@ -377,13 +340,10 @@ function applyDecay(){
       const py_=plotY()|0, ph_=plotH()|0, px_=plotX()|0, pw_=plotW()|0;
       const cx=px_+pw_*0.5, cy=py_+ph_*0.5;
       const tmp=new Uint8ClampedArray(buf8.length);
-      // copy current state to tmp
       tmp.set(buf8);
-      // for each pixel, sample from slightly closer to center (pull inward = spread outward)
       for(let y=py_;y<py_+ph_;y++){
         for(let x=px_;x<px_+pw_;x++){
           const dx=x-cx, dy=y-cy;
-          // source is slightly inward (divide by 1+scale)
           const scale=skewAmt*0.015;
           const sx=cx+dx/(1+scale);
           const sy=cy+dy/(1+scale);
@@ -404,7 +364,7 @@ function applyDecay(){
     buf8[i+2]=((buf8[i+2]*decay)>>8)+((tb*(256-decay))>>8);
   }
 }
-let beamRadius=0; // kept for API compat, not used in plotPx
+let beamRadius=0;
 function plotPx(x,y,br,r,g,b){
   const xi=x|0,yi=y|0;
   if(xi<0||xi>=W||yi<0||yi>=H)return;
@@ -476,13 +436,10 @@ let verbNodes=[],verbGain=null,verbInput=null,wetLimiter=null;
 const N_HARM=32; let lastAudioShape=-1;
 
 function makeFoldCurve(folds){
-  // WaveShaper transfer function: identity at folds=0, progressively folds at folds>0
-  // Input range -1..1, output range -1..1
   const N=1024;
   const curve=new Float32Array(N);
   for(let i=0;i<N;i++){
-    let v=(i/N)*2-1; // -1..1
-    // apply wavefold
+    let v=(i/N)*2-1;
     for(let f=0;f<4;f++){
       const depth=Math.max(0,Math.min(1,folds-f));
       if(depth<0.001)break;
@@ -524,7 +481,6 @@ function initAudio(){
   wetLimiter=audioCtx.createDynamicsCompressor();
   wetLimiter.threshold.value=-3;wetLimiter.knee.value=6;wetLimiter.ratio.value=8;
   wetLimiter.attack.value=0.01;wetLimiter.release.value=0.15;
-  // DC blocker on wet path to remove low-freq thumps from gain changes
   const dcBlock=audioCtx.createBiquadFilter();
   dcBlock.type='highpass';dcBlock.frequency.value=20;dcBlock.Q.value=0.5;
   o3Node.connect(foldNode);
@@ -548,7 +504,7 @@ setInterval(()=>{if(audioCtx&&audioCtx.state!=='running')audioCtx.resume();},200
 function updateAudio(){
   if(!audioCtx)return;
   const ct=audioCtx.currentTime,sh=state.shSlewVal;
-  const aug=0, idx=getScaleIdx();
+  const idx=getScaleIdx();
   const rootOffset=scaleRootOffset();
   const ny3=Math.max(0,Math.min(1,(state.d3.sy-plotY())/plotH()));
   const baseFreq=20*Math.pow(2000/20,1-ny3);
@@ -568,38 +524,27 @@ function updateAudio(){
   vcaGain.gain.cancelScheduledValues(ct);
   vcaGain.gain.setValueAtTime(vcaGain.gain.value,ct);
   vcaGain.gain.linearRampToValueAtTime(state.vcaOut,ct+0.004);
-  const tail=decayVal; // 0→1
+  const tail=decayVal;
 
-  // TIME dot: x=DLY↔RVB balance, y=reverb time + tone
   const bal=timeBalance();
   const timeV=1-timeVal();
   const verbTime=0.3+timeV*4.5;
   const toneFreq=Math.max(300,8000*(1-timeV*0.96));
-
-  // balance-derived send ratios
   const dlyAmt=Math.min(1,bal*2);
   const rvbAmt=Math.min(1,(1-bal)*2);
-
-  // ── Tail fader mapping ──────────────────────────────────────────────────
-  // 0→0.5: dry=1, wet 0→1, fbk 0→0.6
-  // 0.5→1.0: dry 1→0, wet 1→1.6, fbk 0.6→0.9, darker+louder
 
   const dry      = tail<=0.5 ? 1.0 : 1.0-(tail-0.5)*2.0;
   const wetSend  = tail<=0.5 ? tail*2.0 : 1.0+(tail-0.5)*1.2;
   const fbkRaw   = tail<=0.5 ? tail*2*0.6 : 0.6+(tail-0.5)*2*0.3;
-  const dlyFbk   = Math.min(0.9, fbkRaw);
   const rvbFbk   = Math.min(0.93, fbkRaw*0.95+timeV*0.08);
   const darkening= tail>0.5 ? (tail-0.5)*2 : 0;
   const effectiveTone = Math.max(200, toneFreq*(1-darkening*0.65));
   const masterBoost   = 1.0+Math.max(0,1.0-dry)*0.7;
 
-  // delay feedback scaled by delay time: longer delay = lower fbk to maintain consistent decay
   const dlyTimeSec=Math.max(0.02,Math.min(3,8/state.clkFreq));
-  // normalize delay time 0.02→3s to a 0→1 range, reduce fbk proportionally
   const dlyTimeNorm=Math.min(1,(dlyTimeSec-0.02)/2.98);
-  const dlyFbkScaled=Math.min(0.9, fbkRaw*(1-dlyTimeNorm*0.55)); // max reduction 55% at longest delay
+  const dlyFbkScaled=Math.min(0.9, fbkRaw*(1-dlyTimeNorm*0.55));
 
-  // Apply
   inputGainDly.gain.setTargetAtTime(dlyAmt*wetSend*masterBoost*1.4,ct,0.12);
   dlyFdbk.gain.setTargetAtTime(dlyFbkScaled,ct,0.2);
   dlyNode.delayTime.setTargetAtTime(dlyTimeSec,ct,0.35);
@@ -614,13 +559,13 @@ function updateAudio(){
   wetGain.gain.setTargetAtTime(0.6+tail*0.4,ct,0.12);
 }
 
-
+// ── Main loop ─────────────────────────────────────────────────────────────────
 let lastT=null;
 function frame(ts){
   if(!lastT)lastT=ts;
   const dt=Math.min((ts-lastT)/1000,0.033);lastT=ts;
   const f0=lfoFreq(state.d0),f1=dotFreq(state.d1);
-  state.clkFreq=f1; // raw CLK oscillator freq, pre-divider
+  state.clkFreq=f1;
   const sh0=dotShape(state.d0);
   const fastFreq=Math.max(f0,f1);
   const SUBSTEPS=Math.max(1,Math.min(2000,Math.ceil(fastFreq*dt*20)));
@@ -636,15 +581,12 @@ function frame(ts){
 
   const clkX=dotShape(state.d1);
   const euclSteps=16;
-  // CLK divider: 8 steps across x=0..1
-  // /16 /8 /4 /2 /1
   const CLK_DIVS=[16,8,4,2,1];
   const clkDivIdx=Math.round(clkX*(CLK_DIVS.length-1));
   const clkDivide=CLK_DIVS[Math.max(0,Math.min(CLK_DIVS.length-1,clkDivIdx))];
   const euclPat=new Array(euclSteps).fill(0);
   for(let i=0;i<euclSteps;i++) euclPat[i]=(i%clkDivide===0)?1:0;
 
-  // Derive target period directly from oscillator freq + divider, then slew
   const shPeriodTarget=Math.max(0.02,Math.min(10, clkDivide/(f1*euclSteps)));
   state.shPeriod+=(shPeriodTarget-state.shPeriod)*Math.min(1,dt*2);
 
@@ -663,17 +605,14 @@ function frame(ts){
     const risingGate=newStep&&state.euclGate&&(clkDivide===1||!state.prevEuclGate);
     state.prevEuclGate=newStep?false:state.euclGate;
 
-    // raw CLK rising edge (positive zero crossing of CLK oscillator)
     const rawClkGate=yv>0;
     const rawRising=rawClkGate&&!state.envPrevRawGate;
     state.envPrevRawGate=rawClkGate;
 
-    // ENV trigger: count raw rising edges, fire every envTrigDivider() edges
     const envDiv=envTrigDivider();
     if(rawRising){
       state.envClkCount=(state.envClkCount+1)%Math.max(1,envDiv);
       if(state.envClkCount===0){
-        // soft sync check
         const eMin=envMin(), eMax=envMax();
         const curLevel=state.envOut;
         const softBlock=(eMin>0.95&&curLevel>0.5)||(eMax>0.95&&curLevel>0.5);
@@ -693,10 +632,8 @@ function frame(ts){
     }
     state.shSlewVal=state.shVal; o2Out=yv;
 
-    // ENV advance
     const eMin=envMin(), eMax=envMax();
     const envLen=envRateSec();
-    // fast mode: dot in bottom half of plot (envY()>0.5, multiplier<1, faster than CLK)
     const fastMode=envY()>0.5;
     if(state.envGate){
       state.envPhase+=subDt/envLen;
@@ -714,8 +651,10 @@ function frame(ts){
     if(state.prevX!==null) wuLine(state.prevX,state.prevY,p.x,p.y);
     state.prevX=p.x;state.prevY=p.y;
   }
-  tickPM();
-  updateGlide();updateAudio();
+
+  checkPresetHold();
+  updateGlide();
+  updateAudio();
 
   scrX.putImageData(imgData,0,0);
   bgX.clearRect(0,0,W,H);
@@ -732,44 +671,113 @@ function drawOverlay(){
   const pw=plotW(),ph=plotH(),py=plotY(),bt=botY(),px2=plotX();
 
   // ── Top buttons ──
-  const tpW=W/4;
-  for(let i=0;i<4;i++){
-    const m=TOP_MODS[i],isActive=(activeModule===m.key),bx=i*tpW;
-    if(isActive){ovX.fillStyle='rgba(255,255,255,0.10)';ovX.fillRect(bx+1,1,tpW-2,TOP_H-2);}
-    ovX.fillStyle=isActive?'rgba(255,255,0,1.0)':'rgba(255,255,255,0.45)';
-    ovX.font='11px monospace';ovX.textAlign='center';
-    ovX.fillText(m.label,bx+tpW/2,TOP_H*0.65);
+  if(presetOpen){
+    // 3 buttons: SAVE / LOAD / EXIT
+    const labels=['SAVE','LOAD','EXIT'];
+    for(let i=0;i<3;i++){
+      const bx=i*(W/3), bw=W/3;
+      const isActive=(i===0&&presetAction==='save')||(i===1&&presetAction==='load');
+      if(isActive){ovX.fillStyle='rgba(255,255,255,0.12)';ovX.fillRect(bx+1,1,bw-2,TOP_H-2);}
+      if(i===2){ovX.fillStyle='rgba(255,100,100,0.75)';}
+      else{ovX.fillStyle=isActive?'rgba(255,255,0,1.0)':'rgba(255,255,255,0.5)';}
+      ovX.font='bold 11px monospace';ovX.textAlign='center';
+      ovX.fillText(labels[i],bx+bw/2,TOP_H*0.65);
+      if(i>0){ovX.strokeStyle='rgba(255,255,255,0.07)';ovX.lineWidth=1;ovX.beginPath();ovX.moveTo(bx,0);ovX.lineTo(bx,TOP_H);ovX.stroke();}
+    }
+  } else {
+    const tpW=W/4;
+    for(let i=0;i<4;i++){
+      const m=TOP_MODS[i],isActive=(activeModule===m.key),bx=i*tpW;
+      if(isActive){ovX.fillStyle='rgba(255,255,255,0.10)';ovX.fillRect(bx+1,1,tpW-2,TOP_H-2);}
+      ovX.fillStyle=isActive?'rgba(255,255,0,1.0)':'rgba(255,255,255,0.45)';
+      ovX.font='11px monospace';ovX.textAlign='center';
+      ovX.fillText(m.label,bx+tpW/2,TOP_H*0.65);
+    }
   }
 
-  // ── Right pitch strip — dot only ──
+  if(presetOpen){
+    // ── Preset grid ──
+    ovX.fillStyle='rgba(0,0,0,0.88)';
+    ovX.fillRect(px2,py,pw,ph);
+
+    const cols=4,rows=4,cw=pw/cols,ch=ph/rows;
+    for(let r=0;r<rows;r++){
+      for(let c=0;c<cols;c++){
+        const idx=r*cols+c;
+        const cx=px2+c*cw, cy=py+r*ch;
+        const hasPre=!!PRESETS[idx];
+        const isConfirm=(presetConfirmSlot===idx);
+        const flashOn=Math.floor(presetFlashT/5)%2===0;
+
+        // cell fill
+        if(isConfirm){
+          const col=presetAction==='save'?`rgba(255,140,0,${flashOn?0.5:0.15})`:`rgba(0,160,255,${flashOn?0.5:0.15})`;
+          ovX.fillStyle=col;
+        } else {
+          ovX.fillStyle=hasPre?'rgba(255,255,255,0.07)':'rgba(255,255,255,0.02)';
+        }
+        ovX.fillRect(cx+3,cy+3,cw-6,ch-6);
+
+        // cell border
+        ovX.strokeStyle=isConfirm?(flashOn?'rgba(255,255,255,0.9)':'rgba(255,255,255,0.25)'):hasPre?'rgba(255,255,255,0.22)':'rgba(255,255,255,0.07)';
+        ovX.lineWidth=1;
+        ovX.strokeRect(cx+3,cy+3,cw-6,ch-6);
+
+        ovX.textAlign='center';
+        if(isConfirm){
+          // grayed-out state: dim everything except the confirm label
+          const emptySlot=(presetAction==='load'&&!PRESETS[idx]);
+          ovX.fillStyle=flashOn?'rgba(255,255,255,0.95)':'rgba(255,255,255,0.35)';
+          ovX.font='bold 9px monospace';
+          ovX.fillText(presetAction==='save'?'SAVE?':'LOAD?', cx+cw/2, cy+ch/2-6);
+          ovX.font='7px monospace';
+          ovX.fillStyle='rgba(255,255,255,0.4)';
+          ovX.fillText('tap to confirm', cx+cw/2, cy+ch/2+7);
+        } else {
+          const emptyInLoad=(presetAction==='load'&&!hasPre);
+          ovX.fillStyle=emptyInLoad?'rgba(255,255,255,0.1)':hasPre?'rgba(255,255,255,0.75)':'rgba(255,255,255,0.18)';
+          ovX.font='10px monospace';
+          ovX.fillText((idx+1).toString(), cx+cw/2, cy+ch/2+4);
+          if(hasPre){
+            ovX.beginPath();ovX.arc(cx+cw-11,cy+11,3,0,Math.PI*2);
+            ovX.fillStyle='rgba(255,220,0,0.85)';ovX.fill();
+          }
+        }
+      }
+    }
+
+    // hint text
+    if(!presetAction){
+      ovX.fillStyle='rgba(255,255,255,0.22)';ovX.font='8px monospace';ovX.textAlign='center';
+      ovX.fillText('tap SAVE or LOAD above',px2+pw/2,py+ph-10);
+    }
+
+    return; // skip the rest of the overlay when preset page is open
+  }
+
+  // ── Right pitch strip ──
   const psX=W-PITCH_W, psMid=psX+PITCH_W/2;
   const pitchDotY=py+(1-pitchFader)*ph;
   ovX.beginPath();ovX.arc(psMid,pitchDotY,6,0,Math.PI*2);
   ovX.fillStyle='rgba(255,255,255,0.85)';ovX.fill();
-  // value label
   ovX.fillStyle='rgba(255,255,255,0.3)';ovX.font='7px monospace';ovX.textAlign='center';
   ovX.fillText(Math.round(pitchFader*100),psMid,pitchDotY-8);
 
   // ── Bottom fader zone ──
   function drawHFader(rowY,val,labelL,labelR){
     const fL=Math.round(W/12), fR=W-PITCH_W, fMid=rowY+FADER_H/2;
-    // track line
     ovX.strokeStyle='rgba(255,255,255,0.25)';ovX.lineWidth=1;
     ovX.beginPath();ovX.moveTo(fL,fMid);ovX.lineTo(fR,fMid);ovX.stroke();
-    // end labels
     ovX.fillStyle='rgba(255,255,255,0.2)';ovX.font='8px monospace';
     ovX.textAlign='left'; ovX.fillText(labelL,fL,fMid-6);
     ovX.textAlign='right';ovX.fillText(labelR,fR,fMid-6);
-    // dot
     const dotX=fL+val*(fR-fL);
     ovX.beginPath();ovX.arc(dotX,fMid,6,0,Math.PI*2);
     ovX.fillStyle='rgba(255,255,255,0.9)';ovX.fill();
-    // value label above dot
     ovX.fillStyle='rgba(255,255,255,0.5)';ovX.font='8px monospace';ovX.textAlign='center';
     ovX.fillText(Math.round(val*100)+'%',dotX,fMid-10);
   }
 
-  // dynamic label for LFO shape fader
   const LFO_SHAPE_NAMES=['SIN/2','SIN','TRI','SQR','SAW3','SAW↓'];
   const lfoShapeIdx=Math.min(5,Math.floor(shapeFader*6));
   const lfoShapeName=LFO_SHAPE_NAMES[lfoShapeIdx];
@@ -787,39 +795,7 @@ function drawOverlay(){
     if(i>0){ovX.strokeStyle='rgba(255,255,255,0.07)';ovX.lineWidth=1;ovX.beginPath();ovX.moveTo(bx,btnTop);ovX.lineTo(bx,H);ovX.stroke();}
   }
 
-  // ── Preset overlay ──
-  if(pm.phase!=='idle'){
-    ovX.fillStyle='rgba(0,0,0,0.75)';
-    ovX.fillRect(plotX(),plotY(),plotW(),plotH());
-    const cx=plotX()+plotW()/2,cy=plotY()+plotH()/2;
-    ovX.textAlign='center';
-    if(pm.phase==='load'){
-      ovX.fillStyle='rgba(255,60,60,0.95)';ovX.font='bold 13px monospace';
-      ovX.fillText('LOAD PRESET',cx,cy-20);
-      ovX.fillStyle='rgba(255,255,255,0.5)';ovX.font='9px monospace';
-      ovX.fillText('tap button to load',cx,cy+2);
-      ovX.fillText('keep holding for EXPORT',cx,cy+18);
-    } else if(pm.phase==='export'){
-      if(!pm.confirmed){
-        ovX.fillStyle='rgba(255,255,255,0.95)';ovX.font='bold 13px monospace';
-        ovX.fillText('EXPORT STATE',cx,cy-20);
-        ovX.fillStyle='rgba(255,255,255,0.5)';ovX.font='9px monospace';
-        ovX.fillText('tap button to copy JSON',cx,cy+2);
-      } else {
-        ovX.fillStyle='rgba(0,255,120,0.95)';ovX.font='bold 13px monospace';
-        ovX.fillText('COPIED',cx,cy-28);
-        ovX.fillStyle='rgba(255,255,255,0.5)';ovX.font='9px monospace';
-        ovX.fillText('paste JSON to Claude',cx,cy-8);
-        ovX.fillStyle='rgba(255,255,200,0.35)';ovX.font='7px monospace';
-        const prev=(pm.exportJSON||'').slice(0,55)+'...';
-        ovX.fillText(prev,cx,cy+12);
-      }
-    }
-    ovX.fillStyle='rgba(255,255,255,0.15)';ovX.font='8px monospace';
-    ovX.fillText('tap lissajous or bottom btn to exit',cx,plotY()+plotH()-10);
-  }
-
-  // ── OSC dots + value labels ──
+  // ── OSC dots ──
   const botDots=[{k:'d0',m:'lfo'},{k:'d1',m:'clk'},{k:'d3',m:'vco'}];
   for(const {k,m} of botDots){
     const d=state[k],isSel=(activeModule===m);
@@ -853,13 +829,23 @@ function drawOverlay(){
   ovX.fillStyle='rgba(255,255,255,0.2)';ovX.font='7px monospace';
   ovX.textAlign='left';ovX.fillText('ENV:TRI',px2+2,py+12);
   ovX.textAlign='right';ovX.fillText(NOTE_NAMES[scaleRootOffset()]+' '+SCALE_NAMES[getScaleIdx()]+(vname?' '+vname:''),px2+pw-2,py+12);
+
+  // ── Hold-to-open hint on top buttons ──
+  if(presetHolding){
+    const progress=Math.min(1,(Date.now()-presetHoldStart)/PRESET_HOLD_MS);
+    const bIdx=Math.floor(presetHoldBtnX/(W/4));
+    const bx=bIdx*(W/4);
+    ovX.fillStyle='rgba(255,255,255,0.15)';
+    ovX.fillRect(bx+2,TOP_H-4,(W/4-4)*progress,3);
+  }
 }
 
 // ── Gesture system ────────────────────────────────────────────────────────────
-const TAP_MS=300,ACCEL=0.06,THROW_SCALE=1.0,COAST_FRICTION=0.99;
+const TAP_MS=300,THROW_SCALE=1.0,COAST_FRICTION=0.99;
 const HORIZ=['fader0','fader1'];
 const fineTune={},touches={};
 let plotTouch=null;
+let presetHoldBtnX=0;
 ovC.style.pointerEvents='all';
 
 function handleModuleSelect(x,y){
@@ -881,33 +867,32 @@ ovC.addEventListener('touchstart',e=>{
   for(const t of e.changedTouches){
     const tgt=hitTest(t.clientX,t.clientY);
     touches[t.identifier]={tgt,startX:t.clientX,startY:t.clientY,startTime:Date.now(),moved:false};
-    if(HORIZ.includes(tgt)||tgt==='pitchStrip'){
+
+    if(tgt==='topBtn'){
+      if(presetOpen){
+        // SAVE / LOAD / EXIT
+        const idx=Math.floor(t.clientX/(W/3));
+        if(idx===0){ presetAction='save'; presetConfirmSlot=-1; }
+        else if(idx===1){ presetAction='load'; presetConfirmSlot=-1; }
+        else { closePresets(); }
+      } else {
+        presetHoldBtnX=t.clientX;
+        presetHoldStart=Date.now(); presetHolding=true;
+      }
+    }
+    else if(tgt==='presetGrid'){
+      handlePresetGridTap(t.clientX,t.clientY);
+    }
+    else if(HORIZ.includes(tgt)||tgt==='pitchStrip'){
       if(HORIZ.includes(tgt)){fineTune[t.identifier]={startY:t.clientY};}
       applyMove(tgt,t.clientX,t.clientY);
-      // stop the selected dot
       const sd=selectedDot();if(sd){vel[sd].vx=0;vel[sd].vy=0;}
-    }
-    if(tgt==='topBtn'){
-      const bIdx=Math.max(0,Math.min(3,Math.floor(t.clientX/(W/4))));
-      pm.lastTouch=Date.now();
-      if(pm.phase==='idle'){
-        pm.holdStart=Date.now(); pm.btnIdx=bIdx; pm.stillHolding=true;
-      } else if(pm.phase==='load'){
-        if(PRESETS[bIdx])applyStateObj(PRESETS[bIdx]);
-        resetPM();
-      } else if(pm.phase==='export'){
-        const j=JSON.stringify(captureState(),null,2);
-        pm.exportJSON=j; pm.confirmed=true;
-        try{navigator.clipboard.writeText(j).catch(()=>{});}catch(e){}
-      }
     }
     else if(tgt==='botBtn'){
       const bIdx=Math.max(0,Math.min(2,Math.floor(t.clientX/(W/3))));
       selectModule(BOTTOM_MODS[bIdx].key);
-      resetPM();
     }
     else if(tgt==='plot'){
-      resetPM();
       const allDots=[
         {k:'d0',m:'lfo'},{k:'d1',m:'clk'},{k:'d3',m:'vco'},
         ...(activeModule==='screen'?[{k:'ds',m:'screen'}]:[]),
@@ -945,10 +930,10 @@ ovC.addEventListener('touchmove',e=>{
 ovC.addEventListener('touchend',e=>{
   for(const t of e.changedTouches){
     const tc=touches[t.identifier];
-    if(tc&&tc.tgt==='topBtn'){
-      pm.stillHolding=false; pm.lastTouch=Date.now();
-      if(pm.phase==='idle'&&Date.now()-pm.holdStart<LOAD_MS){
-        handleModuleSelect(t.clientX,t.clientY); resetPM();
+    if(tc&&tc.tgt==='topBtn'&&!presetOpen){
+      presetHolding=false;
+      if(Date.now()-presetHoldStart<PRESET_HOLD_MS){
+        handleModuleSelect(t.clientX,t.clientY);
       }
     }
     if(plotTouch&&plotTouch.id===t.identifier)plotTouch.active=false;
@@ -956,12 +941,12 @@ ovC.addEventListener('touchend',e=>{
   }
 });
 
+// ── Glide / physics ───────────────────────────────────────────────────────────
 function updateGlide(){
   const sd=selectedDot();
   const pw=plotW(),ph=plotH(),py2=plotY(),mg=0,px3=plotX();
   const maxDist=Math.sqrt(pw*pw+ph*ph);
 
-  // ── Coast ALL dots ──
   const allDotKeys=['d0','d1','d3','d4','ds','dt','dsc'];
   for(const k of allDotKeys){
     const d=state[k],v=vel[k];
@@ -975,7 +960,6 @@ function updateGlide(){
     if(k===sd) syncFadersFromDot(sd);
   }
 
-  // ── Touch physics for selected dot only ──
   if(!sd) return;
   const d=state[sd],v=vel[sd];
   if(plotTouch&&plotTouch.active){
@@ -996,15 +980,8 @@ function updateGlide(){
     syncFadersFromDot(sd);
   } else if(plotTouch&&!plotTouch.active){
     if(!plotTouch.coasting){
-      // use dot's actual velocity at release moment, not finger velocity
-      // finger velocity only used if it was a real flick (high speed)
       const fingerSpd=Math.sqrt(plotTouch.vx*plotTouch.vx+plotTouch.vy*plotTouch.vy);
-      if(fingerSpd>=2.0){
-        // flick: use finger velocity
-        v.vx=plotTouch.vx*THROW_SCALE;
-        v.vy=plotTouch.vy*THROW_SCALE;
-      }
-      // else: keep dot's current velocity from attraction physics
+      if(fingerSpd>=2.0){ v.vx=plotTouch.vx*THROW_SCALE; v.vy=plotTouch.vy*THROW_SCALE; }
       plotTouch.coasting=true;
       plotTouch._attractFriction=fingerSpd<2.0;
     }
@@ -1016,13 +993,17 @@ function updateGlide(){
 
 function hitTest(x,y){
   const py_=plotY(),bt_=botY();
-  if(y<TOP_H)return 'topBtn';
-  if(y<TOP_H+LED_H)return null;
-  if(x>=W-PITCH_W&&y>=py_&&y<bt_)return 'pitchStrip';
-  if(y>=bt_&&y<bt_+FADER_H)return 'fader0';
-  if(y>=bt_+FADER_H&&y<bt_+FADER_H*2)return 'fader1';
-  if(y>=bt_+BOT_H&&y<=H)return 'botBtn';
-  if(y>=py_&&y<bt_)return 'plot';
+  if(y<TOP_H) return 'topBtn';
+  if(y<TOP_H+LED_H) return null;
+  if(presetOpen){
+    if(y>=py_&&y<bt_) return 'presetGrid';
+    return null;
+  }
+  if(x>=W-PITCH_W&&y>=py_&&y<bt_) return 'pitchStrip';
+  if(y>=bt_&&y<bt_+FADER_H) return 'fader0';
+  if(y>=bt_+FADER_H&&y<bt_+FADER_H*2) return 'fader1';
+  if(y>=bt_+BOT_H&&y<=H) return 'botBtn';
+  if(y>=py_&&y<bt_) return 'plot';
   return null;
 }
 
@@ -1041,19 +1022,52 @@ function applyMove(tgt,x,y){
   }
 }
 
+// ── Mouse ─────────────────────────────────────────────────────────────────────
 let mTgt=null;
 ovC.addEventListener('mousedown',e=>{
-  startAudio();mTgt=hitTest(e.clientX,e.clientY);
-  if(mTgt==='topBtn'){const idx=Math.floor(e.clientX/(W/4));selectModule(TOP_MODS[Math.max(0,Math.min(3,idx))].key);}
-  else if(mTgt==='botBtn'){selectModule(BOTTOM_MODS[Math.max(0,Math.min(2,Math.floor(e.clientX/(W/3))))].key);}
-  else if(mTgt)applyMove(mTgt,e.clientX,e.clientY);
+  startAudio();
+  mTgt=hitTest(e.clientX,e.clientY);
+  mouseDownTime=Date.now();
+
+  if(mTgt==='topBtn'){
+    if(presetOpen){
+      const idx=Math.floor(e.clientX/(W/3));
+      if(idx===0){ presetAction='save'; presetConfirmSlot=-1; }
+      else if(idx===1){ presetAction='load'; presetConfirmSlot=-1; }
+      else { closePresets(); }
+    } else {
+      presetHoldBtnX=e.clientX;
+      presetHoldTimer=setTimeout(()=>{ presetHolding=false; openPresets(); },PRESET_HOLD_MS);
+      presetHoldStart=Date.now(); presetHolding=true;
+    }
+  }
+  else if(mTgt==='presetGrid'){ handlePresetGridTap(e.clientX,e.clientY); }
+  else if(mTgt==='botBtn'){ selectModule(BOTTOM_MODS[Math.max(0,Math.min(2,Math.floor(e.clientX/(W/3))))].key); }
+  else if(mTgt){ applyMove(mTgt,e.clientX,e.clientY); }
 });
+
 window.addEventListener('mousemove',e=>{
   if(!mTgt)return;
-  if(plotTouch&&plotTouch.id==='mouse'){const now=performance.now(),dt2=Math.max(1,now-(plotTouch.lastTime||now));plotTouch.vx=(e.clientX-plotTouch.x)/(dt2/16);plotTouch.vy=(e.clientY-plotTouch.y)/(dt2/16);plotTouch.lastTime=now;plotTouch.x=e.clientX;plotTouch.y=e.clientY;}
-  else applyMove(mTgt,e.clientX,e.clientY);
+  if(plotTouch&&plotTouch.id==='mouse'){
+    const now=performance.now(),dt2=Math.max(1,now-(plotTouch.lastTime||now));
+    plotTouch.vx=(e.clientX-plotTouch.x)/(dt2/16);plotTouch.vy=(e.clientY-plotTouch.y)/(dt2/16);
+    plotTouch.lastTime=now;plotTouch.x=e.clientX;plotTouch.y=e.clientY;
+  } else if(!['topBtn','presetGrid','botBtn'].includes(mTgt)){
+    applyMove(mTgt,e.clientX,e.clientY);
+  }
 });
-window.addEventListener('mouseup',()=>{if(plotTouch&&plotTouch.id==='mouse')plotTouch.active=false;mTgt=null;});
+
+window.addEventListener('mouseup',e=>{
+  if(presetHoldTimer){ clearTimeout(presetHoldTimer); presetHoldTimer=null; }
+  if(mTgt==='topBtn'&&!presetOpen){
+    presetHolding=false;
+    if(Date.now()-mouseDownTime<PRESET_HOLD_MS){
+      selectModule(TOP_MODS[Math.max(0,Math.min(3,Math.floor(e.clientX/(W/4))))].key);
+    }
+  }
+  if(plotTouch&&plotTouch.id==='mouse') plotTouch.active=false;
+  mTgt=null;
+});
 
 resize(); initDots(); requestAnimationFrame(frame);
 
