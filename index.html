@@ -145,6 +145,12 @@ const state={
 
 let shapeFader=0.0,pitchFader=0.5,decayVal=0.0,xfadeVal=0.0,auxFader=0.5;
 let clkVisShape=0.50;
+let showHow=false;
+const SCOPE_N=120;
+const scopeLFO=new Float32Array(SCOPE_N);
+const scopeSH=new Float32Array(SCOPE_N);
+const scopeTrig=new Uint8Array(SCOPE_N);
+let scopeHead=0,scopePrevGate=false,clkFlash=0;
 const vel={d0:{vx:0,vy:0},d1:{vx:0,vy:0},d3:{vx:0,vy:0},d4:{vx:0,vy:0},
            ds:{vx:0,vy:0},dt:{vx:0,vy:0},dsc:{vx:0,vy:0}};
 
@@ -683,6 +689,16 @@ function frame(ts){
   updateGlide();
   updateAudio();
 
+  // ── HOW scope sample (always, so diagram is live when toggled on) ──
+  scopeLFO[scopeHead]=lfoWave(state.ph0,dotShape(state.d0));
+  scopeSH[scopeHead]=state.shSlewVal;
+  const isTrig=state.euclGate&&!scopePrevGate;
+  scopeTrig[scopeHead]=isTrig?1:0;
+  if(isTrig)clkFlash=1.0;
+  clkFlash*=0.82;
+  scopePrevGate=state.euclGate;
+  scopeHead=(scopeHead+1)%SCOPE_N;
+
   scrX.putImageData(imgData,0,0);
   bgX.clearRect(0,0,W,H);
   bgX.globalAlpha=1.0;
@@ -694,33 +710,29 @@ function frame(ts){
 
 // ── HOW block diagram ─────────────────────────────────────────────────────────
 function drawHowDiagram(){
+  if(!showHow)return;
   const px=plotX(),py=plotY(),pw=plotW(),dh=plotH()/3;
-  ovX.fillStyle='rgba(0,0,0,0.78)';
+  ovX.fillStyle='rgba(0,0,0,0.80)';
   ovX.fillRect(px,py,pw,dh);
 
-  const bw=48,bh=18;
-  const lfoC={x:px+pw*0.13,y:py+dh*0.40};
-  const shC ={x:px+pw*0.50,y:py+dh*0.40};
-  const vcoC={x:px+pw*0.87,y:py+dh*0.40};
-  const clkC={x:px+pw*0.50,y:py+dh*0.80};
+  const bw=44,bh=18;        // small blocks
+  const sbw=96,sbh=54;      // S&H scope block
+  const rowY=py+dh*0.42, clkY=py+dh*0.82;
+  const lfoC={x:px+pw*0.12,y:rowY};
+  const shC ={x:px+pw*0.50,y:rowY};
+  const vcoC={x:px+pw*0.88,y:rowY};
+  const clkC={x:px+pw*0.50,y:clkY};
 
   const lfoP=((state.ph0%(2*Math.PI))+2*Math.PI)%(2*Math.PI)/(2*Math.PI);
   const clkP=((state.ph1%(2*Math.PI))+2*Math.PI)%(2*Math.PI)/(2*Math.PI);
   const shOutP=(clkP+0.35)%1.0;
-  const clkGlow=state.euclGate?0.90:0.50;
+  const lfoAmp=(Math.sin(state.ph0)+1)*0.5; // 0-1 pulsing with LFO
 
-  function blk(c,label,br){
-    ovX.strokeStyle=`rgba(255,255,255,${br})`;ovX.lineWidth=1;
-    ovX.strokeRect(c.x-bw/2,c.y-bh/2,bw,bh);
-    ovX.fillStyle=`rgba(255,255,255,${br})`;
-    ovX.font='9px monospace';ovX.textAlign='center';ovX.textBaseline='middle';
-    ovX.fillText(label,c.x,c.y);
-    ovX.textBaseline='alphabetic';
-  }
   function arw(x1,y1,x2,y2,t,r,g,b){
     const dx=x2-x1,dy=y2-y1,len=Math.hypot(dx,dy);
+    if(len<1)return;
     const nx=dx/len,ny=dy/len;
-    ovX.strokeStyle=`rgba(${r},${g},${b},0.5)`;ovX.lineWidth=1;
+    ovX.strokeStyle=`rgba(${r},${g},${b},0.45)`;ovX.lineWidth=1;
     ovX.beginPath();ovX.moveTo(x1,y1);ovX.lineTo(x2,y2);ovX.stroke();
     const hx=x2-nx*6,hy=y2-ny*6;
     ovX.beginPath();ovX.moveTo(x2,y2);ovX.lineTo(hx-ny*3,hy+nx*3);ovX.lineTo(hx+ny*3,hy-nx*3);
@@ -728,13 +740,78 @@ function drawHowDiagram(){
     ovX.beginPath();ovX.arc(x1+dx*t,y1+dy*t,2.5,0,Math.PI*2);
     ovX.fillStyle=`rgba(${r},${g},${b},0.95)`;ovX.fill();
   }
-  arw(lfoC.x+bw/2, lfoC.y,      shC.x-bw/2,  shC.y,      lfoP,   220,230,100);
-  arw(clkC.x,      clkC.y-bh/2, shC.x,        shC.y+bh/2, clkP,   100,220,220);
-  arw(shC.x+bw/2,  shC.y,       vcoC.x-bw/2,  vcoC.y,     shOutP, 200,140,255);
-  blk(lfoC,'LFO',0.65);
-  blk(shC, 'S&H',clkGlow);
-  blk(vcoC,'VCO',0.65);
-  blk(clkC,'CLK',clkGlow);
+
+  // arrows (drawn behind blocks)
+  arw(lfoC.x+bw/2,  lfoC.y,      shC.x-sbw/2, shC.y,       lfoP,   220,230,100);
+  arw(clkC.x,       clkC.y-bh/2, shC.x,        shC.y+sbh/2, clkP,   100,220,220);
+  arw(shC.x+sbw/2,  shC.y,       vcoC.x-bw/2,  vcoC.y,      shOutP, 200,140,255);
+
+  // ── LFO block — yellow, pulses with LFO ──
+  const lfoBr=0.35+lfoAmp*0.65;
+  ovX.strokeStyle=`rgba(255,255,0,${lfoBr})`;ovX.lineWidth=1;
+  ovX.strokeRect(lfoC.x-bw/2,lfoC.y-bh/2,bw,bh);
+  ovX.fillStyle=`rgba(255,255,0,${lfoBr})`;
+  ovX.font='9px monospace';ovX.textAlign='center';ovX.textBaseline='middle';
+  ovX.fillText('LFO',lfoC.x,lfoC.y);ovX.textBaseline='alphabetic';
+
+  // ── S&H block with scope ──
+  ovX.strokeStyle='rgba(255,255,255,0.65)';ovX.lineWidth=1;
+  ovX.strokeRect(shC.x-sbw/2,shC.y-sbh/2,sbw,sbh);
+  // scope area (top portion of block)
+  const scx=shC.x-sbw/2+3, scy=shC.y-sbh/2+3;
+  const scw=sbw-6,          sch=sbh-15; // 12px for label at bottom
+  ovX.save();
+  ovX.beginPath();ovX.rect(scx,scy,scw,sch);ovX.clip();
+  // CLK trigger lines
+  ovX.lineWidth=1;
+  for(let i=0;i<SCOPE_N;i++){
+    const si=(scopeHead+i)%SCOPE_N;
+    if(scopeTrig[si]){
+      const x=scx+(i/(SCOPE_N-1))*scw;
+      ovX.strokeStyle='rgba(100,220,220,0.45)';
+      ovX.beginPath();ovX.moveTo(x,scy);ovX.lineTo(x,scy+sch);ovX.stroke();
+    }
+  }
+  // LFO trace (dim)
+  ovX.strokeStyle='rgba(220,230,100,0.28)';ovX.lineWidth=1;
+  ovX.beginPath();
+  for(let i=0;i<SCOPE_N;i++){
+    const si=(scopeHead+i)%SCOPE_N;
+    const x=scx+(i/(SCOPE_N-1))*scw;
+    const y=scy+sch/2-scopeLFO[si]*sch/2*0.85;
+    i===0?ovX.moveTo(x,y):ovX.lineTo(x,y);
+  }
+  ovX.stroke();
+  // S&H stepped output (bright purple)
+  ovX.strokeStyle='rgba(200,140,255,0.85)';ovX.lineWidth=1.5;
+  ovX.beginPath();
+  for(let i=0;i<SCOPE_N;i++){
+    const si=(scopeHead+i)%SCOPE_N;
+    const x=scx+(i/(SCOPE_N-1))*scw;
+    const y=scy+sch/2-scopeSH[si]*sch/2*0.85;
+    i===0?ovX.moveTo(x,y):ovX.lineTo(x,y);
+  }
+  ovX.stroke();
+  ovX.restore();
+  // S&H label at block bottom
+  ovX.fillStyle='rgba(255,255,255,0.6)';
+  ovX.font='8px monospace';ovX.textAlign='center';ovX.textBaseline='middle';
+  ovX.fillText('S&H',shC.x,shC.y+sbh/2-6);ovX.textBaseline='alphabetic';
+
+  // ── VCO block ──
+  ovX.strokeStyle='rgba(200,140,255,0.6)';ovX.lineWidth=1;
+  ovX.strokeRect(vcoC.x-bw/2,vcoC.y-bh/2,bw,bh);
+  ovX.fillStyle='rgba(200,140,255,0.6)';
+  ovX.font='9px monospace';ovX.textAlign='center';ovX.textBaseline='middle';
+  ovX.fillText('VCO',vcoC.x,vcoC.y);ovX.textBaseline='alphabetic';
+
+  // ── CLK block — flashes on trigger ──
+  const ca=0.30+clkFlash*0.70;
+  ovX.strokeStyle=`rgba(100,220,220,${ca})`;ovX.lineWidth=1;
+  ovX.strokeRect(clkC.x-bw/2,clkC.y-bh/2,bw,bh);
+  ovX.fillStyle=`rgba(100,220,220,${ca})`;
+  ovX.font='9px monospace';ovX.textAlign='center';ovX.textBaseline='middle';
+  ovX.fillText('CLK',clkC.x,clkC.y);ovX.textBaseline='alphabetic';
 }
 
 // ── Overlay ───────────────────────────────────────────────────────────────────
@@ -760,7 +837,7 @@ function drawOverlay(){
   } else {
     const tpW=W/4;
     for(let i=0;i<4;i++){
-      const m=TOP_MODS[i],isActive=(activeModule===m.key),bx=i*tpW;
+      const m=TOP_MODS[i],isActive=(m.key==='how'?showHow:(activeModule===m.key)),bx=i*tpW;
       if(isActive){ovX.fillStyle='rgba(255,255,255,0.10)';ovX.fillRect(bx+1,1,tpW-2,TOP_H-2);}
       ovX.fillStyle=isActive?'rgba(255,255,0,1.0)':'rgba(255,255,255,0.45)';
       ovX.font='11px monospace';ovX.textAlign='center';
@@ -832,7 +909,7 @@ function drawOverlay(){
     return; // skip the rest of the overlay when preset page is open
   }
 
-  if(activeModule==='how') drawHowDiagram();
+  drawHowDiagram();
 
   // ── Right pitch strip ──
   const psX=W-PITCH_W, psMid=psX+PITCH_W/2;
@@ -911,6 +988,7 @@ function handleModuleSelect(x,y){
   if(y<TOP_H){
     const idx=Math.floor(x/(W/4));
     const m=TOP_MODS[Math.max(0,Math.min(3,idx))];
+    if(m.key==='how'){showHow=!showHow;return true;}
     selectModule(m.key); return true;
   }
   if(y>=botY()+BOT_H){
@@ -1140,7 +1218,8 @@ window.addEventListener('mouseup',e=>{
   if(mTgt==='topBtn'&&!presetOpen){
     presetHolding=false;
     if(Date.now()-mouseDownTime<PRESET_HOLD_MS){
-      selectModule(TOP_MODS[Math.max(0,Math.min(3,Math.floor(ex(e.clientX)/(W/4))))].key);
+      const tm=TOP_MODS[Math.max(0,Math.min(3,Math.floor(ex(e.clientX)/(W/4))))];
+      if(tm.key==='how'){showHow=!showHow;}else{selectModule(tm.key);}
     }
   }
   if(plotTouch&&plotTouch.id==='mouse') plotTouch.active=false;
