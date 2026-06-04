@@ -516,7 +516,7 @@ function updateAudio(){
   const idx=getScaleIdx();
   const rootOffset=scaleRootOffset();
   const ny3=Math.max(0,Math.min(1,(state.d3.sy-plotY())/plotH()));
-  const baseFreq=20*Math.pow(2000/20,1-ny3);
+  const baseFreq=126*Math.pow(2000/126,1-ny3);
   const baseSt=12*Math.log2(Math.max(20,baseFreq)/440);
   const scArr2=SCALES[Math.max(0,Math.min(7,idx))];
   const degIdx=Math.round(scaleY()*(scArr2.length-1));
@@ -634,7 +634,7 @@ function frame(ts){
       state.shLastTrigTime=state.ph1/(2*Math.PI*f1);
       const rootOffset2=scaleRootOffset(),idx2=getScaleIdx();
       const ny3=Math.max(0,Math.min(1,(state.d3.sy-plotY())/plotH()));
-      const bf=20*Math.pow(2000/20,1-ny3);
+      const bf=126*Math.pow(2000/126,1-ny3);
       const bs=12*Math.log2(Math.max(20,bf)/440);
       const st2=quantize(bs+xv*0.5*24,idx2)+rootOffset2;
       fireNoteLED(st2);
