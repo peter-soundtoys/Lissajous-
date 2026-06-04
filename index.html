@@ -775,7 +775,8 @@ function frame(ts){
 // ── HOW block diagram ─────────────────────────────────────────────────────────
 function shScopeBlock(){
   const px=plotX(),py=plotY(),pw=plotW(),dh=plotH()/3;
-  const sbw=96,sbh=54,shCx=px+pw*0.52,shCy=py+dh*0.50;
+  const bh=42,sbw=96,sbh=54;
+  const shCx=px+pw*0.52,shCy=py+dh*0.30-bh; // matches rowY in drawHowDiagram
   return{x:shCx-sbw/2,y:shCy-sbh/2,w:sbw,h:sbh,cx:shCx,cy:shCy,sbw,sbh};
 }
 
