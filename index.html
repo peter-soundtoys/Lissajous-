@@ -148,7 +148,7 @@ const state={
 
 let shapeFader=0.0,pitchFader=0.5,decayVal=0.0,xfadeVal=0.0,auxFader=0.5;
 let clkVisShape=0.50;
-let paused=false;
+let muted=false;
 let currentClkDivide=1;
 let shScopeAutoScale=true;
 let shScopeScale=1.0;
@@ -190,10 +190,9 @@ let presetFlashT=0;
 let mouseDownTime=0;
 const PRESET_HOLD_MS=800;
 
-function togglePause(){
-  paused=!paused;
-  if(paused){if(audioCtx)audioCtx.suspend();}
-  else{startAudio();lastT=null;}
+function toggleMute(){
+  muted=!muted;
+  if(gainNode)gainNode.gain.setTargetAtTime(muted?0:0.4,audioCtx.currentTime,0.02);
 }
 
 function openPresets(){ presetOpen=true; presetAction='load'; presetConfirmSlot=-1; }
@@ -608,7 +607,7 @@ function updateAudio(){
     foldNode.curve=makeFoldCurve(shapeF*4);
     lastAudioShape=shapeF;
   }
-  gainNode.gain.setTargetAtTime(0.4,ct,0.05);
+  gainNode.gain.setTargetAtTime(muted?0:0.4,ct,0.05);
   vcaGain.gain.cancelScheduledValues(ct);
   vcaGain.gain.setValueAtTime(vcaGain.gain.value,ct);
   vcaGain.gain.linearRampToValueAtTime(state.vcaOut,ct+0.004);
@@ -652,11 +651,6 @@ let lastT=null;
 function frame(ts){
   if(!lastT)lastT=ts;
   const dt=Math.min((ts-lastT)/1000,0.033);lastT=ts;
-  if(paused){
-    scrX.putImageData(imgData,0,0);
-    bgX.clearRect(0,0,W,H);bgX.drawImage(scrC,0,0);
-    drawOverlay();requestAnimationFrame(frame);return;
-  }
   const f0=lfoFreq(state.d0);
   const f1=dotFreq(state.d1);
   state.clkFreq=f1;
@@ -1135,8 +1129,8 @@ function drawOverlay(){
   }
   // ── Small play/pause overlay on LFO button (bottom-left) ──
   ovX.font='14px monospace';ovX.textAlign='center';ovX.textBaseline='middle';
-  ovX.fillStyle=paused?'rgba(255,255,255,0.85)':'rgba(255,255,255,0.30)';
-  ovX.fillText(paused?'▶':'⏸', nbW*0.18, H-btnH*0.22);
+  ovX.fillStyle=muted?'rgba(255,255,255,0.85)':'rgba(255,255,255,0.30)';
+  ovX.fillText('M', nbW*0.18, H-btnH*0.22);
   // ── Small ? overlay on VCO button (bottom-right) ──
   ovX.fillStyle=showInfo?'rgba(255,255,0,0.9)':'rgba(255,255,255,0.30)';
   ovX.fillText('?', W-nbW*0.18, H-btnH*0.22);
@@ -1302,7 +1296,7 @@ ovC.addEventListener('touchstart',e=>{
         if(sd){vel[sd].vx=0;vel[sd].vy=0;}
       }
     }
-    else if(tgt==='playPause'){ togglePause(); }
+    else if(tgt==='playPause'){ toggleMute(); }
     else if(tgt==='shScope'){
       shScopeInteract={startY:cy_,startScale:shScopeScale,moved:false,startTime:Date.now(),id:t.identifier};
     }
@@ -1311,7 +1305,7 @@ ovC.addEventListener('touchstart',e=>{
       const btnH_=H-(botY()+BOT_H);
       const isPlay=bIdx===0&&cx_<W/3*0.38&&cy_>H-btnH_*0.5;
       const isInfo=bIdx===2&&cx_>W-W/3*0.38&&cy_>H-btnH_*0.5;
-      if(isPlay){togglePause();}
+      if(isPlay){toggleMute();}
       else if(isInfo){showInfo=!showInfo;}
       else{selectModule(BOTTOM_MODS[bIdx].key);}
     }
@@ -1555,7 +1549,7 @@ ovC.addEventListener('mousedown',e=>{
     }
   }
   else if(mTgt==='presetGrid'){ handlePresetGridTap(cx_,cy_); }
-  else if(mTgt==='playPause'){ togglePause(); }
+  else if(mTgt==='playPause'){ toggleMute(); }
   else if(mTgt==='shScope'){
     shScopeInteract={startY:cy_,startScale:shScopeScale,moved:false,startTime:Date.now(),id:'mouse'};
   }
