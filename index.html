@@ -165,7 +165,10 @@ const scopeENV=new Float32Array(SCOPE_N);
 const vel={d0:{vx:0,vy:0},d1:{vx:0,vy:0},d3:{vx:0,vy:0},d4:{vx:0,vy:0},
            ds:{vx:0,vy:0},dt:{vx:0,vy:0},dsc:{vx:0,vy:0}};
 let throwFrictionOffX=false,throwFrictionOffY=false;
+let coastDot=null; // dot key that was coasting when friction was removed
 let pendingFrictionOff=null; // {id,x,y,startX,startY,t}
+let xAttractTarget=null,yAttractTarget=null; // smooth fader-tap animation targets
+let showInfo=false;
 
 function selectedDot(){ return MODULE_DOT[activeModule]||null; }
 
@@ -190,7 +193,7 @@ const PRESET_HOLD_MS=800;
 function togglePause(){
   paused=!paused;
   if(paused){if(audioCtx)audioCtx.suspend();}
-  else{if(audioCtx)audioCtx.resume();lastT=null;}
+  else{startAudio();lastT=null;}
 }
 
 function openPresets(){ presetOpen=true; presetAction='load'; presetConfirmSlot=-1; }
@@ -276,20 +279,43 @@ function envY(){ return Math.max(0,Math.min(1,(state.d4.sy-plotY())/plotH())); }
 function envMultiplier(){ const y=1-envY(); return Math.pow(12, y*2-1); }
 function envRateSec(){ const clkPeriod=1/Math.max(0.001,state.clkFreq); return clkPeriod*envMultiplier(); }
 function envTrigDivider(){ return Math.max(1,Math.round(envMultiplier())); }
-function envMin(){ return 0; }
+function envMin(){
+  const x=envX();
+  return x>=1/3?0:Math.max(0,1-x*3);
+}
 function envMax(){ return 1.0; }
 function envCurve(phase,eMin,eMax){
   const p=Math.max(0,Math.min(1,phase));
-  const x=envX();            // 0=all-decay/instant-attack .. 1=all-attack/ramp
-  const curviness=1-envY();  // 0=linear (dot at top) .. 1=expo (dot at bottom)
-  const atkExp=Math.pow(0.12,curviness); // ~1 linear → ~0.12 very curved
-  const decExp=Math.pow(8,  curviness); // ~1 linear → ~8 very curved
-  let v;
-  if(x<=0){       v=Math.pow(1-p, decExp); }
-  else if(x>=1){  v=Math.pow(p,   atkExp); }
-  else if(p<=x){  v=Math.pow(p/x, atkExp); }
-  else{           v=Math.pow((1-p)/(1-x), decExp); }
-  return eMin+(eMax-eMin)*Math.max(0,Math.min(1,v));
+  const x=envX();
+  const y=1-envY(); // y=1 at dot top (linear), y=0 at dot bottom (expo)
+  if(x<=1/3){
+    // Zone 0: pluck/sustain — original expo↔log blend, Y controls
+    const expo=Math.pow(1-p,4);
+    const logC=1-Math.pow(p,0.2);
+    const blend=Math.max(0,Math.min(1,(y-0.5)*2));
+    const curve=expo*(1-blend)+logC*blend;
+    return eMin+(eMax-eMin)*Math.max(0,Math.min(1,curve));
+  }
+  const seg=(x-1/3)*6;
+  const i=Math.min(3,Math.floor(seg));
+  const k=seg-i;
+  // eCur: Y-blended pluck at x=1/3 boundary (continuity with zone 0)
+  const eCur=(Math.pow(1-p,4))*(1-Math.max(0,Math.min(1,(y-0.5)*2)))
+           +(1-Math.pow(p,0.2))*Math.max(0,Math.min(1,(y-0.5)*2));
+  // Expo shapes
+  const eD=Math.pow(Math.max(0,1-p),2.5);
+  const eT=p<0.15?p/0.15:Math.pow(Math.max(0,(1-p)/0.85),2);
+  // Linear shapes
+  const lT=p<0.5?p*2:Math.max(0,2*(1-p));
+  const lA=p;
+  // Y blend: t=y (0=expo, 1=linear) — Y now affects ALL zones
+  const t=Math.max(0,Math.min(1,y));
+  const bD=eD*(1-t)+(1-p)*t;               // expo decay ↔ linear decay
+  const bT=eT*(1-t)+lT*t;                   // expo tri ↔ linear tri
+  const bA=Math.pow(p,1/3)*(1-t)+lA*t;     // expo ramp ↔ linear ramp
+  // shapes[3]=lT stays fixed (preserves original eT→lT zone boundary)
+  const shapes=[eCur,bD,bT,lT,bA];
+  return Math.max(0,Math.min(1,eMin+(eMax-eMin)*(shapes[i]*(1-k)+shapes[i+1]*k)));
 }
 
 function euclidean(steps,pulses){
@@ -1095,11 +1121,6 @@ function drawOverlay(){
   drawHFader(bt,       activeModule==='clk' ? clkVisShape : shapeFader);
   drawHFader(bt+FADER_H, decayVal);
 
-  // Play/pause button in left dead zone of fader rows
-  const fL_=Math.round(W/12);
-  ovX.font='13px monospace';ovX.textAlign='center';ovX.textBaseline='middle';
-  ovX.fillStyle=paused?'rgba(255,255,255,0.7)':'rgba(255,255,255,0.28)';
-  ovX.fillText(paused?'▶':'⏸',fL_*0.5,bt+BOT_H*0.5);
   ovX.textBaseline='alphabetic';
 
   // ── Bottom 3 module buttons ──
@@ -1112,17 +1133,24 @@ function drawOverlay(){
     ovX.fillText(m.label,bx+nbW/2,btnTop+btnH*0.55);
     if(i>0){ovX.strokeStyle='rgba(255,255,255,0.07)';ovX.lineWidth=1;ovX.beginPath();ovX.moveTo(bx,btnTop);ovX.lineTo(bx,H);ovX.stroke();}
   }
+  // ── Small play/pause overlay on LFO button (bottom-left) ──
+  ovX.font='14px monospace';ovX.textAlign='center';ovX.textBaseline='middle';
+  ovX.fillStyle=paused?'rgba(255,255,255,0.85)':'rgba(255,255,255,0.30)';
+  ovX.fillText(paused?'▶':'⏸', nbW*0.18, H-btnH*0.22);
+  // ── Small ? overlay on VCO button (bottom-right) ──
+  ovX.fillStyle=showInfo?'rgba(255,255,0,0.9)':'rgba(255,255,255,0.30)';
+  ovX.fillText('?', W-nbW*0.18, H-btnH*0.22);
+  ovX.textBaseline='alphabetic';
 
   // ── OSC dots ──
-  const sd_dot=selectedDot();
-  const frOff=(throwFrictionOffX||throwFrictionOffY)&&plotTouch&&plotTouch.coasting;
+  const frOff=(throwFrictionOffX||throwFrictionOffY)&&coastDot!==null;
   const frPulse=frOff?(Math.sin(performance.now()*0.004)+1)*0.5:0;
   const frColor=`rgba(255,${Math.round(200+55*frPulse)},${Math.round(200*frPulse)},0.95)`;
   const botDots=[{k:'d0',m:'lfo'},{k:'d1',m:'clk'},{k:'d3',m:'vco'}];
   for(const {k,m} of botDots){
     const d=state[k],isSel=(activeModule===m);
     ovX.beginPath();ovX.arc(d.sx,d.sy,6,0,Math.PI*2);
-    ovX.fillStyle=(frOff&&k===sd_dot)?frColor:isSel?'rgba(255,255,0,1.0)':'rgba(255,255,255,0.25)';
+    ovX.fillStyle=(frOff&&k===coastDot)?frColor:isSel?'rgba(255,255,0,1.0)':'rgba(255,255,255,0.25)';
     ovX.fill();
   }
   const topDots=[{k:'dt',m:'time'},{k:'dsc',m:'scale'},{k:'d4',m:'env'}];
@@ -1130,8 +1158,46 @@ function drawOverlay(){
     if(activeModule!==m)continue;
     const d=state[k];
     ovX.beginPath();ovX.arc(d.sx,d.sy,6,0,Math.PI*2);
-    ovX.fillStyle=(frOff&&k===sd_dot)?frColor:'rgba(255,255,0,1.0)';
+    ovX.fillStyle='rgba(255,255,0,1.0)';
     ovX.fill();
+  }
+
+  // ── Info overlay ──
+  if(showInfo){
+    ovX.fillStyle='rgba(0,0,0,0.82)';
+    ovX.fillRect(px2,py,pw,ph);
+    ovX.fillStyle='rgba(255,255,255,0.92)';
+    ovX.font='bold 13px monospace';ovX.textAlign='center';
+    ovX.fillText('HOW TO USE LISSAJOUS',px2+pw/2,py+26);
+    ovX.fillStyle='rgba(255,255,255,0.75)';
+    ovX.font='11px monospace';
+    const lines=[
+      'SELECT a module with the bottom buttons',
+      'LFO · CLK · VCO control the oscillator',
+      '',
+      'DRAG the dot to set pitch/shape',
+      'Left fader = wave shape',
+      'Right fader = decay / tail',
+      'Y strip = pitch offset',
+      '',
+      'THROW the dot — swipe & release',
+      'TAP XY area while moving → COAST (no friction)',
+      'TAP fader track to stop coasting on that axis',
+      'HOLD XY area to attract dot to finger',
+      '',
+      'ENV sets envelope · TIME sets tempo',
+      'SCALE tunes to musical scales',
+      'INFO shows signal flow diagram',
+      '',
+      'tap anywhere to close',
+    ];
+    let ly=py+50;
+    for(const l of lines){
+      if(l===''){ly+=6;continue;}
+      ovX.fillText(l,px2+pw/2,ly);
+      ly+=16;
+    }
+    return;
   }
 
   // ── Hold-to-open hint on top buttons ──
