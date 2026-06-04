@@ -39,9 +39,9 @@ const BTN_H   = 28;
 const BOT_H   = FADER_H * 2;
 
 function plotW(){ return W - PITCH_W - Math.round(W/12); }
-function plotH(){ return Math.max(50, H - TOP_H - LED_H - BOT_H - BTN_H - 48); }
+function plotH(){ return Math.max(50, H - TOP_H - LED_H - BOT_H - BTN_H - 60); }
 function plotX(){ return Math.round(W/12); }
-function plotY(){ return TOP_H + LED_H; }
+function plotY(){ return TOP_H + LED_H + 12; }
 function botY() { return plotY() + plotH(); }
 
 function resize(){
@@ -63,7 +63,7 @@ const BOTTOM_MODS=[
   {key:'vco',label:'VCO'},
 ];
 const TOP_MODS=[
-  {key:'how',label:'HOW'},
+  {key:'how',label:'?'},
   {key:'time',  label:'TIME'},
   {key:'scale', label:'SCALE'},
   {key:'env',   label:'ENV'},
@@ -153,7 +153,8 @@ let currentClkDivide=1;
 let shScopeAutoScale=true;
 let shScopeScale=1.0;
 let shScopeInteract=null;
-let fineTuneSemitones=0;
+let ftPrevY=null;    // fine tune: last Y for delta computation
+let ftActive=false;  // fine tune mode engaged
 let showHow=false;
 const SCOPE_N=120;
 const scopeLFO=new Float32Array(SCOPE_N);
@@ -272,16 +273,41 @@ function envY(){ return Math.max(0,Math.min(1,(state.d4.sy-plotY())/plotH())); }
 function envMultiplier(){ const y=1-envY(); return Math.pow(12, y*2-1); }
 function envRateSec(){ const clkPeriod=1/Math.max(0.001,state.clkFreq); return clkPeriod*envMultiplier(); }
 function envTrigDivider(){ return Math.max(1,Math.round(envMultiplier())); }
-function envMin(){ return Math.max(0, 1-envX()); }
+function envMin(){
+  const x=envX();
+  return x>=1/3?0:Math.max(0,1-x*3); // 0→1/3 fader: min 1→0; beyond 1/3: no floor
+}
 function envMax(){ return 1.0; }
 function envCurve(phase,eMin,eMax){
   const p=Math.max(0,Math.min(1,phase));
+  const x=envX();
+  if(x<=1/3){
+    // Current shape (Y fader blends expo→log), compressed to left 1/3
+    const y=1-envY();
+    const expo=Math.pow(1-p,4);
+    const logC=1-Math.pow(p,0.2);
+    const blend=Math.max(0,Math.min(1,(y-0.5)*2));
+    const curve=expo*(1-blend)+logC*blend;
+    return eMin+(eMax-eMin)*Math.max(0,Math.min(1,curve));
+  }
+  // Shape zones: 4 segments of 1/6 each from 1/3 to 1
+  const seg=(x-1/3)*6; // 0..4
+  const i=Math.min(3,Math.floor(seg));
+  const k=seg-i;
+  // "current" shape at x=1/3 boundary (using y fader)
   const y=1-envY();
-  const expo=Math.pow(1-p,4);
-  const logC=1-Math.pow(p,0.2);
-  const blend=Math.max(0,Math.min(1,(y-0.5)*2));
-  const curve=expo*(1-blend)+logC*blend;
-  return eMin+(eMax-eMin)*Math.max(0,Math.min(1,curve));
+  const eCur=(Math.pow(1-p,4))*(1-Math.max(0,Math.min(1,(y-0.5)*2)))
+           +(1-Math.pow(p,0.2))*Math.max(0,Math.min(1,(y-0.5)*2));
+  // expo decay: hard pluck, peaks immediately
+  const eD=Math.pow(Math.max(0,1-p),2.5);
+  // expo triangle: fast attack then expo decay
+  const eT=p<0.15?p/0.15:Math.pow(Math.max(0,(1-p)/0.85),2);
+  // linear triangle: symmetric rise/fall
+  const lT=p<0.5?p*2:Math.max(0,2*(1-p));
+  // linear attack: rises to peak, stays
+  const lA=p;
+  const shapes=[eCur,eD,eT,lT,lA];
+  return Math.max(0,Math.min(1,shapes[i]*(1-k)+shapes[i+1]*k));
 }
 
 function euclidean(steps,pulses){
@@ -566,7 +592,6 @@ function updateAudio(){
   const degIdx=Math.round(scaleY()*(scArr2.length-1));
   const semiOffset=scArr2[Math.max(0,Math.min(scArr2.length-1,degIdx))];
   let semitones=quantize(baseSt+sh*0.5*24+semiOffset,idx)+rootOffset;
-  if(activeModule==='vco')semitones+=fineTuneSemitones;
   const freq=440*Math.pow(2,semitones/12);
   o3Node.frequency.setValueAtTime(Math.max(20,Math.min(8000,freq)),ct);
   const shapeF=Math.max(0,Math.min(1,dot3Shape()));
@@ -623,9 +648,8 @@ function frame(ts){
     bgX.clearRect(0,0,W,H);bgX.drawImage(scrC,0,0);
     drawOverlay();requestAnimationFrame(frame);return;
   }
-  const ftMul=Math.pow(2,fineTuneSemitones/12);
-  const f0=lfoFreq(state.d0)*(activeModule==='lfo'?ftMul:1);
-  const f1=dotFreq(state.d1)*(activeModule==='clk'?ftMul:1);
+  const f0=lfoFreq(state.d0);
+  const f1=dotFreq(state.d1);
   state.clkFreq=f1;
   const sh0=dotShape(state.d0);
   const fastFreq=Math.max(f0,f1);
@@ -677,7 +701,7 @@ function frame(ts){
       if(state.envClkCount===0){
         const eMin=envMin(), eMax=envMax();
         const curLevel=state.envOut;
-        const softBlock=(eMin>0.95&&curLevel>0.5)||(eMax>0.95&&curLevel>0.5);
+        const softBlock=eMin>0.95; // only block when floor is near 1 (x≈0)
         if(!softBlock){ state.envPhase=0; state.envGate=true; }
       }
     }
@@ -760,10 +784,10 @@ function drawHowDiagram(){
 
   const bw=72,bh=42;
   const sbw=96,sbh=54;
-  const lfoC={x:px+pw*0.13,y:py+dh*0.28};
-  const clkC={x:px+pw*0.13,y:py+dh*0.74};
-  const shC ={x:px+pw*0.52,y:py+dh*0.50};
-  const vcoC={x:px+pw*0.87,y:py+dh*0.50};
+  const lfoC={x:px+pw*0.13,y:py+dh*0.30};
+  const clkC={x:px+pw*0.13,y:py+dh*0.58};  // closer to LFO (was 0.74)
+  const shC ={x:px+pw*0.52,y:py+dh*0.30};  // aligned with LFO (was 0.50)
+  const vcoC={x:px+pw*0.87,y:py+dh*0.30};  // aligned with LFO (was 0.50)
 
   const COL='rgba(255,255,255,0.55)';
 
@@ -1003,17 +1027,7 @@ function drawOverlay(){
   const psX=W-PITCH_W, psMid=psX+PITCH_W/2;
   const pitchDotY=py+(1-pitchFader)*ph;
   ovX.beginPath();ovX.arc(psMid,pitchDotY,6,0,Math.PI*2);
-  ovX.fillStyle='rgba(255,255,255,0.85)';ovX.fill();
-  // Fine tune indicator: highlight pitch dot and show offset bar when active
-  if(fineTuneSemitones<-0.02){
-    const ftAmt=-fineTuneSemitones/2; // 0..1
-    ovX.beginPath();ovX.arc(psMid,pitchDotY,6,0,Math.PI*2);
-    ovX.fillStyle=`rgba(255,200,0,${0.4+ftAmt*0.5})`;ovX.fill();
-    // small bar below dot showing detune depth
-    const barW=(PITCH_W-8)*ftAmt;
-    ovX.fillStyle='rgba(255,200,0,0.6)';
-    ovX.fillRect(psX+4,pitchDotY+9,barW,2);
-  }
+  ovX.fillStyle=ftActive?'rgba(255,200,0,0.9)':'rgba(255,255,255,0.85)';ovX.fill();
 
   // ── Bottom fader zone ──
   function drawHFader(rowY,val){
@@ -1195,7 +1209,7 @@ ovC.addEventListener('touchend',e=>{
       if(!shScopeInteract.moved) shScopeAutoScale=!shScopeAutoScale;
       shScopeInteract=null;
     }
-    if(tc&&tc.tgt==='pitchStrip') fineTuneSemitones=0;
+    if(tc&&tc.tgt==='pitchStrip'){ftActive=false;ftPrevY=null;}
     if(plotTouch&&plotTouch.id===t.identifier)plotTouch.active=false;
     delete touches[t.identifier];delete fineTune[t.identifier];
   }
@@ -1288,10 +1302,18 @@ function applyMove(tgt,x,y){
     const py_=plotY(),ph_=plotH();
     const ftEdge=W-PITCH_W-28;
     if(x<ftEdge){
-      // Fine tune zone: freeze pitch, map x→ up to -2 semitones
-      fineTuneSemitones=-2*Math.max(0,Math.min(1,(ftEdge-x)/90));
+      // Fine tune: Y controls pitch, sensitivity = x/ftEdge (right=1:1, left=fine)
+      ftActive=true;
+      const sensitivity=Math.max(0.01,Math.min(1,x/ftEdge));
+      if(ftPrevY!==null){
+        const dy=y-ftPrevY;
+        pitchFader=Math.max(0,Math.min(1,pitchFader-dy*sensitivity/ph_));
+        const sd=selectedDot();if(sd)syncDotFromFaders(sd);
+      }
+      ftPrevY=y;
     } else {
-      fineTuneSemitones=0;
+      // Normal zone: direct 1:1 Y→pitchFader mapping
+      ftActive=false;ftPrevY=null;
       pitchFader=1-Math.max(0,Math.min(1,(y-py_)/ph_));
       const sd=selectedDot();if(sd)syncDotFromFaders(sd);
     }
@@ -1374,7 +1396,7 @@ window.addEventListener('mouseup',e=>{
     if(!shScopeInteract.moved) shScopeAutoScale=!shScopeAutoScale;
     shScopeInteract=null;
   }
-  if(mTgt==='pitchStrip') fineTuneSemitones=0;
+  if(mTgt==='pitchStrip'){ftActive=false;ftPrevY=null;}
   if(plotTouch&&plotTouch.id==='mouse') plotTouch.active=false;
   mTgt=null;
 });
