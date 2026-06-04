@@ -1,4 +1,4 @@
-const CACHE = 'lissajous-v10';
+const CACHE = 'lissajous-v11';
 const ASSETS = [
   './index.html',
   './manifest.json',

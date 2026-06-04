@@ -1240,6 +1240,7 @@ function handleModuleSelect(x,y){
 
 ovC.addEventListener('touchstart',e=>{
   e.preventDefault();startAudio();unlockAudio();
+  if(showInfo){showInfo=false;return;}
   for(const t of e.changedTouches){
     const cx_=ex(t.clientX), cy_=t.clientY;
     const tgt=hitTest(cx_,cy_);
@@ -1268,25 +1269,33 @@ ovC.addEventListener('touchstart',e=>{
         const dotX_=fL_+shapeFader*(fR_-fL_);
         const onFDot=Math.hypot(cx_-dotX_,cy_-(botY()+FADER_H/2))<14;
         const coasting_=throwFrictionOffX||throwFrictionOffY;
+        xAttractTarget=null;
         if(onFDot){
           if(sd)vel[sd].vx=0; throwFrictionOffX=false;
+          if(!throwFrictionOffX&&!throwFrictionOffY)coastDot=null;
         } else if(coasting_){
           throwFrictionOffX=false; if(sd)vel[sd].vx=0;
-          // no applyMove on touchstart; touchmove will move if user slides
+          if(!throwFrictionOffX&&!throwFrictionOffY)coastDot=null;
         } else {
-          throwFrictionOffX=false; applyMove(tgt,cx_,cy_); if(sd)vel[sd].vx=0;
+          // smooth lerp to tapped position — no snap
+          throwFrictionOffX=false;
+          if(sd){ xAttractTarget=plotX()+Math.max(0,Math.min(1,(cx_-fL_)/(fR_-fL_)))*plotW(); vel[sd].vx=0; }
         }
       } else if(tgt==='pitchStrip'){
         const pDotY_=plotY()+(1-pitchFader)*plotH();
         const onPDot=Math.hypot(cx_-(W-PITCH_W/2),cy_-pDotY_)<14;
         const coasting_=throwFrictionOffX||throwFrictionOffY;
+        yAttractTarget=null;
         if(onPDot){
           if(sd)vel[sd].vy=0; throwFrictionOffY=false;
+          if(!throwFrictionOffX&&!throwFrictionOffY)coastDot=null;
         } else if(coasting_){
           throwFrictionOffY=false; if(sd)vel[sd].vy=0;
-          // no applyMove on touchstart; touchmove will move if user slides
+          if(!throwFrictionOffX&&!throwFrictionOffY)coastDot=null;
         } else {
-          throwFrictionOffY=false; applyMove(tgt,cx_,cy_); if(sd)vel[sd].vy=0;
+          // smooth lerp to tapped position — no snap
+          throwFrictionOffY=false;
+          if(sd){ yAttractTarget=plotY()+(1-Math.max(0,Math.min(1,(cy_-plotY())/plotH())))*plotH(); vel[sd].vy=0; }
         }
       } else {
         applyMove(tgt,cx_,cy_);
@@ -1299,7 +1308,12 @@ ovC.addEventListener('touchstart',e=>{
     }
     else if(tgt==='botBtn'){
       const bIdx=Math.max(0,Math.min(2,Math.floor(cx_/(W/3))));
-      selectModule(BOTTOM_MODS[bIdx].key);
+      const btnH_=H-(botY()+BOT_H);
+      const isPlay=bIdx===0&&cx_<W/3*0.38&&cy_>H-btnH_*0.5;
+      const isInfo=bIdx===2&&cx_>W-W/3*0.38&&cy_>H-btnH_*0.5;
+      if(isPlay){togglePause();}
+      else if(isInfo){showInfo=!showInfo;}
+      else{selectModule(BOTTOM_MODS[bIdx].key);}
     }
     else if(tgt==='plot'){
       const allDots=[
@@ -1317,12 +1331,13 @@ ovC.addEventListener('touchstart',e=>{
       const onSelDot=sd&&Math.hypot(cx_-state[sd].sx,cy_-state[sd].sy)<38;
       const inThrow=plotTouch&&plotTouch.coasting;
       const coastEligible=['d0','d1','d3'].includes(sd);
+      xAttractTarget=null;yAttractTarget=null;
       if(inThrow&&!onSelDot&&coastEligible){
-        // Set flags immediately so speed is preserved from this instant
         throwFrictionOffX=true;throwFrictionOffY=true;
+        coastDot=sd;
         pendingFrictionOff={id:t.identifier,x:cx_,y:cy_,startX:cx_,startY:cy_,t:Date.now()};
       } else {
-        if(inThrow){throwFrictionOffX=false;throwFrictionOffY=false;}
+        if(inThrow){throwFrictionOffX=false;throwFrictionOffY=false;coastDot=null;}
         plotTouch={x:cx_,y:cy_,id:t.identifier,active:true,direct:!!onSelDot,vx:0,vy:0,lastTime:performance.now(),coasting:false};
       }
     }
@@ -1343,8 +1358,8 @@ ovC.addEventListener('touchmove',e=>{
         shScopeScale=Math.max(0.125,Math.min(8,shScopeInteract.startScale*Math.pow(2,-dy/50)));
       }
     }
-    else if(tc.tgt==='pitchStrip')applyMove(tc.tgt,cx_,cy_);
-    else if(HORIZ.includes(tc.tgt)){const ft=fineTune[t.identifier];applyMove(tc.tgt,ft?cx_-(cy_-ft.startY)*2:cx_,cy_);}
+    else if(tc.tgt==='pitchStrip'){yAttractTarget=null;applyMove(tc.tgt,cx_,cy_);}
+    else if(HORIZ.includes(tc.tgt)){xAttractTarget=null;const ft=fineTune[t.identifier];applyMove(tc.tgt,ft?cx_-(cy_-ft.startY)*2:cx_,cy_);}
     else if(pendingFrictionOff&&pendingFrictionOff.id===t.identifier){
       pendingFrictionOff.x=cx_;pendingFrictionOff.y=cy_;
       if(Math.hypot(cx_-pendingFrictionOff.startX,cy_-pendingFrictionOff.startY)>6){
@@ -1391,7 +1406,7 @@ ovC.addEventListener('touchend',e=>{
 function updateGlide(){
   // If pendingFrictionOff has been held beyond TAP_MS, transition to attract mode
   if(pendingFrictionOff&&Date.now()-pendingFrictionOff.t>TAP_MS){
-    throwFrictionOffX=false;throwFrictionOffY=false;
+    throwFrictionOffX=false;throwFrictionOffY=false;coastDot=null;
     plotTouch={x:pendingFrictionOff.x,y:pendingFrictionOff.y,id:pendingFrictionOff.id,
                active:true,direct:false,vx:0,vy:0,lastTime:performance.now(),coasting:false};
     pendingFrictionOff=null;
@@ -1405,17 +1420,30 @@ function updateGlide(){
   for(const k of allDotKeys){
     const d=state[k],v=vel[k];
     if(Math.abs(v.vx)<0.01&&Math.abs(v.vy)<0.01) continue;
-    // Suppress baseline decay on selected dot's frictionless axes
-    if(!throwFrictionOffX||k!==sd) v.vx*=0.998;
-    if(!throwFrictionOffY||k!==sd) v.vy*=0.998;
+    // coastDot tracks which dot is coasting — survives module switches
+    if(!throwFrictionOffX||k!==coastDot) v.vx*=0.998;
+    if(!throwFrictionOffY||k!==coastDot) v.vy*=0.998;
     d.sx+=v.vx;d.sy+=v.vy;
-    const bncX=(k===sd&&throwFrictionOffX)?1.0:0.4;
-    const bncY=(k===sd&&throwFrictionOffY)?1.0:0.4;
+    const bncX=(k===coastDot&&throwFrictionOffX)?1.0:0.4;
+    const bncY=(k===coastDot&&throwFrictionOffY)?1.0:0.4;
     if(d.sx<px3+mg){d.sx=px3+mg;v.vx=Math.abs(v.vx)*bncX;}
     if(d.sx>px3+pw-mg){d.sx=px3+pw-mg;v.vx=-Math.abs(v.vx)*bncX;}
     if(d.sy<py2+mg){d.sy=py2+mg;v.vy=Math.abs(v.vy)*bncY;}
     if(d.sy>py2+ph-mg){d.sy=py2+ph-mg;v.vy=-Math.abs(v.vy)*bncY;}
     if(k===sd) syncFadersFromDot(sd);
+  }
+  // Smooth fader-tap attract
+  if(sd&&xAttractTarget!==null){
+    const dx=xAttractTarget-state[sd].sx;
+    if(Math.abs(dx)<0.5){state[sd].sx=xAttractTarget;vel[sd].vx=0;xAttractTarget=null;}
+    else{state[sd].sx+=dx*0.22;vel[sd].vx=0;}
+    syncFadersFromDot(sd);
+  }
+  if(sd&&yAttractTarget!==null){
+    const dy=yAttractTarget-state[sd].sy;
+    if(Math.abs(dy)<0.5){state[sd].sy=yAttractTarget;vel[sd].vy=0;yAttractTarget=null;}
+    else{state[sd].sy+=dy*0.22;vel[sd].vy=0;}
+    syncFadersFromDot(sd);
   }
 
   if(!sd) return;
@@ -1444,9 +1472,10 @@ function updateGlide(){
       plotTouch._attractFriction=fingerSpd<2.0;
     }
     const baseFr=plotTouch._attractFriction?0.92:COAST_FRICTION;
-    v.vx*=throwFrictionOffX?1.0:baseFr;
-    v.vy*=throwFrictionOffY?1.0:baseFr;
-    if(!throwFrictionOffX&&!throwFrictionOffY&&Math.abs(v.vx)<0.01&&Math.abs(v.vy)<0.01)plotTouch=null;
+    const cv=coastDot&&coastDot!==sd?vel[coastDot]:v;
+    cv.vx*=throwFrictionOffX?1.0:baseFr;
+    cv.vy*=throwFrictionOffY?1.0:baseFr;
+    if(!throwFrictionOffX&&!throwFrictionOffY&&Math.abs(cv.vx)<0.01&&Math.abs(cv.vy)<0.01)plotTouch=null;
   }
 }
 
