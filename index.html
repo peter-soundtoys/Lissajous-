@@ -595,7 +595,7 @@ function updateAudio(){
   const idx=getScaleIdx();
   const rootOffset=scaleRootOffset();
   const ny3=Math.max(0,Math.min(1,(state.d3.sy-plotY())/plotH()));
-  const baseFreq=126*Math.pow(2000/126,1-ny3);
+  const baseFreq=126*Math.pow(1000/126,1-ny3);
   const baseSt=12*Math.log2(Math.max(20,baseFreq)/440);
   const scArr2=SCALES[Math.max(0,Math.min(7,idx))];
   const degIdx=Math.round(scaleY()*(scArr2.length-1));
