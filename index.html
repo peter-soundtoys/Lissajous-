@@ -63,13 +63,13 @@ const BOTTOM_MODS=[
   {key:'vco',label:'VCO'},
 ];
 const TOP_MODS=[
-  {key:'screen',label:'SCREEN'},
+  {key:'how',label:'HOW'},
   {key:'time',  label:'TIME'},
   {key:'scale', label:'SCALE'},
   {key:'env',   label:'ENV'},
 ];
 
-const MODULE_DOT={lfo:'d0',clk:'d1',vco:'d3',env:'d4',screen:'ds',time:'dt',scale:'dsc'};
+const MODULE_DOT={lfo:'d0',clk:'d1',vco:'d3',env:'d4',how:'ds',time:'dt',scale:'dsc'};
 let activeModule='lfo';
 
 function selectModule(key){
@@ -235,7 +235,7 @@ function initDots(){
   state.d1.sx=px+pw*0.50; state.d1.sy=py+ph*(1-0.50);
   state.d3.sx=px+pw*0.20; state.d3.sy=py+ph*(1-0.60);
   state.d4.sx=px+pw*1.00; state.d4.sy=py+ph*(1-0.75);
-  state.ds.sx=px+pw*0.20; state.ds.sy=py+ph*(1-0.00);
+  state.ds.sx=px+pw*0.17; state.ds.sy=py+ph*(1-0.00);
   state.dt.sx=px+pw*0.95; state.dt.sy=py+ph*(1-0.80);
   state.dsc.sx=px+pw*0.00; state.dsc.sy=py+ph*(1-5/7);
   const sd=selectedDot(); if(sd)syncFadersFromDot(sd);
@@ -300,6 +300,19 @@ function wave(ph,shape,ramp){
   const saw=ramp?(n/Math.PI-1):(1-n/Math.PI);
   if(shape<0.5){const k=shape*2;return s*(1-k)+tri*k;}
   else{const k=(shape-0.5)*2;return tri*(1-k)+saw*k;}
+}
+
+function clkWave(ph,shape){
+  const n=((ph%(2*Math.PI))+2*Math.PI)%(2*Math.PI);
+  const sine=Math.sin(ph);
+  const tri=(2/Math.PI)*Math.asin(Math.max(-1,Math.min(1,sine)));
+  const sawD=1-n/Math.PI;
+  const sawU=n/Math.PI-1;
+  const seg=shape*4;
+  const i=Math.min(3,Math.floor(seg));
+  const k=seg-i;
+  const waves=[sawD,tri,sine,tri,sawU];
+  return Math.max(-1,Math.min(1,waves[i]*(1-k)+waves[i+1]*k));
 }
 
 function lfoWave(ph,shape){
@@ -608,7 +621,7 @@ function frame(ts){
     state.ph0+=2*Math.PI*f0*subDt;
     state.ph1+=2*Math.PI*f1*subDt;
     const xv=lfoWave(state.ph0,sh0);
-    const yv=lfoWave(state.ph1,clkVisShape);
+    const yv=clkWave(state.ph1,clkVisShape);
 
     const clkPhNorm=((state.ph1%(2*Math.PI))+2*Math.PI)%(2*Math.PI)/(2*Math.PI);
     const stepIdx=Math.floor(clkPhNorm*euclSteps)%euclSteps;
@@ -796,10 +809,16 @@ function drawOverlay(){
     ovX.fillText(Math.round(val*100)+'%',dotX,fMid-10);
   }
 
-  const LFO_SHAPE_NAMES=['SIN/2','SIN','TRI','SQR','SAW3','SAW↓'];
-  const lfoShapeIdx=Math.min(5,Math.floor(shapeFader*6));
-  const lfoShapeName=LFO_SHAPE_NAMES[lfoShapeIdx];
-  drawHFader(bt,         shapeFader, 'SIN/2', lfoShapeName+'  SAW↓');
+  if(activeModule==='clk'){
+    const CLK_SHAPE_NAMES=['SAW↓','TRI','SIN','TRI','SAW↑'];
+    const clkIdx=Math.min(4,Math.floor(clkVisShape*5));
+    drawHFader(bt, clkVisShape, 'SAW↓', CLK_SHAPE_NAMES[clkIdx]+'  SAW↑');
+  } else {
+    const LFO_SHAPE_NAMES=['SIN/2','SIN','TRI','SQR','SAW3','SAW↓'];
+    const lfoShapeIdx=Math.min(5,Math.floor(shapeFader*6));
+    const lfoShapeName=LFO_SHAPE_NAMES[lfoShapeIdx];
+    drawHFader(bt, shapeFader, 'SIN/2', lfoShapeName+'  SAW↓');
+  }
   drawHFader(bt+FADER_H, decayVal,   'DRY', 'WET');
 
   // ── Bottom 3 module buttons ──
@@ -914,7 +933,7 @@ ovC.addEventListener('touchstart',e=>{
     else if(tgt==='plot'){
       const allDots=[
         {k:'d0',m:'lfo'},{k:'d1',m:'clk'},{k:'d3',m:'vco'},
-        ...(activeModule==='screen'?[{k:'ds',m:'screen'}]:[]),
+        ...(activeModule==='how'?[{k:'ds',m:'how'}]:[]),
         ...(activeModule==='time'?[{k:'dt',m:'time'}]:[]),
         ...(activeModule==='scale'?[{k:'dsc',m:'scale'}]:[]),
         ...(activeModule==='env'?[{k:'d4',m:'env'}]:[]),
@@ -1068,7 +1087,7 @@ ovC.addEventListener('mousedown',e=>{
   else if(mTgt==='plot'){
     const allDots=[
       {k:'d0',m:'lfo'},{k:'d1',m:'clk'},{k:'d3',m:'vco'},
-      ...(activeModule==='screen'?[{k:'ds',m:'screen'}]:[]),
+      ...(activeModule==='how'?[{k:'ds',m:'how'}]:[]),
       ...(activeModule==='time'?[{k:'dt',m:'time'}]:[]),
       ...(activeModule==='scale'?[{k:'dsc',m:'scale'}]:[]),
       ...(activeModule==='env'?[{k:'d4',m:'env'}]:[]),
