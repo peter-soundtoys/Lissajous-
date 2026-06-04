@@ -161,8 +161,11 @@ const scopeLFO=new Float32Array(SCOPE_N);
 const scopeSH=new Float32Array(SCOPE_N);
 const scopeTrig=new Uint8Array(SCOPE_N);
 let scopeHead=0,scopePrevGate=false,clkFlash=0;
+const scopeENV=new Float32Array(SCOPE_N);
 const vel={d0:{vx:0,vy:0},d1:{vx:0,vy:0},d3:{vx:0,vy:0},d4:{vx:0,vy:0},
            ds:{vx:0,vy:0},dt:{vx:0,vy:0},dsc:{vx:0,vy:0}};
+let throwFrictionOffX=false,throwFrictionOffY=false;
+let pendingFrictionOff=null; // {id,x,y,startX,startY,t}
 
 function selectedDot(){ return MODULE_DOT[activeModule]||null; }
 
@@ -746,6 +749,7 @@ function frame(ts){
   // ── HOW scope sample (always, so diagram is live when toggled on) ──
   scopeLFO[scopeHead]=lfoWave(state.ph0,dotShape(state.d0));
   scopeSH[scopeHead]=state.shSlewVal;
+  scopeENV[scopeHead]=state.envOut;
   const isTrig=state.euclGate&&!scopePrevGate;
   scopeTrig[scopeHead]=isTrig?1:0;
   if(isTrig)clkFlash=1.0;
@@ -776,7 +780,8 @@ function frame(ts){
 function shScopeBlock(){
   const px=plotX(),py=plotY(),pw=plotW(),dh=plotH()/3;
   const bh=42,sbw=96,sbh=54;
-  const shCx=px+pw*0.52,shCy=py+dh*0.30-Math.round(bh*2/3); // matches rowY in drawHowDiagram
+  const rowY_=py+dh*0.30-Math.round(bh*2/3);
+  const shCx=px+pw*0.52,shCy=rowY_-Math.round((sbh-bh)/2); // bottom aligns with LFO bottom
   return{x:shCx-sbw/2,y:shCy-sbh/2,w:sbw,h:sbh,cx:shCx,cy:shCy,sbw,sbh};
 }
 
@@ -786,15 +791,20 @@ function drawHowDiagram(){
 
   const bw=72,bh=42;
   const sbw=96,sbh=54;
-  const rowY=py+dh*0.30-Math.round(bh*2/3); // bh*2/3 ≈ 28px above baseline
-  const lfoC={x:px+pw*0.13,y:rowY};
-  const clkC={x:px+pw*0.13,y:py+dh*0.58-Math.round(bh*2/3)};
-  const shC ={x:px+pw*0.52,y:rowY};
-  const vcoC={x:px+pw*0.87,y:rowY};
+  const rowY =py+dh*0.30-Math.round(bh*2/3);
+  const row2Y=py+dh*0.70-Math.round(bh*2/3);
+  const shOffY=Math.round((sbh-bh)/2); // = 6 — S&H bottom aligns with LFO bottom
+
+  const lfoC={x:px+pw*0.13, y:rowY};
+  const clkC={x:px+pw*0.13, y:row2Y};
+  const shC ={x:px+pw*0.52, y:rowY-shOffY};
+  const vcoC={x:px+pw*0.87, y:rowY};
+  const envC={x:px+pw*0.52, y:row2Y};
+  const vcaC={x:px+pw*0.87, y:row2Y};
 
   const COL='rgba(255,255,255,0.55)';
 
-  // Orthogonal arrow (no diagonals): horizontal → vertical → horizontal
+  // Orthogonal arrow: H → V → H, arrowhead at end
   function arwOrtho(x1,y1,x2,y2){
     const midX=(x1+x2)*0.5;
     ovX.strokeStyle=COL;ovX.lineWidth=1;
@@ -804,12 +814,31 @@ function drawHowDiagram(){
     ovX.closePath();ovX.fillStyle=COL;ovX.fill();
   }
 
-  // LFO → S&H left side, 1/4 from top
-  arwOrtho(lfoC.x+bw/2, lfoC.y,   shC.x-sbw/2, shC.y-sbh/4);
-  // CLK → S&H left side, 1/4 from bottom
-  arwOrtho(clkC.x+bw/2, clkC.y,   shC.x-sbw/2, shC.y+sbh/4);
-  // S&H → VCO (same Y, simple horizontal)
-  arwOrtho(shC.x+sbw/2, shC.y,    vcoC.x-bw/2, vcoC.y);
+  // Vertical arrow (straight down or up), arrowhead at end
+  function arwVert(x1,y1,x2,y2){
+    ovX.strokeStyle=COL;ovX.lineWidth=1;
+    ovX.beginPath();ovX.moveTo(x1,y1);ovX.lineTo(x2,y2);ovX.stroke();
+    const dir=y2>=y1?1:-1;
+    ovX.beginPath();ovX.moveTo(x2,y2);ovX.lineTo(x2-3,y2-dir*6);ovX.lineTo(x2+3,y2-dir*6);
+    ovX.closePath();ovX.fillStyle=COL;ovX.fill();
+  }
+
+  // ── Row-1 connections ──
+  arwOrtho(lfoC.x+bw/2, lfoC.y,    shC.x-sbw/2, shC.y-sbh/4);  // LFO → S&H signal in
+  arwOrtho(clkC.x+bw/2, clkC.y,    shC.x-sbw/2, shC.y+sbh/4);  // CLK → S&H trigger in
+  arwOrtho(shC.x+sbw/2, shC.y,     vcoC.x-bw/2, vcoC.y);        // S&H → VCO
+  // ── Row-2 connections ──
+  arwOrtho(clkC.x+bw/2, clkC.y,    envC.x-bw/2, envC.y);        // CLK → ENV in
+  arwOrtho(envC.x+bw/2, envC.y,    vcaC.x-bw/2, vcaC.y-bh/4);   // ENV → VCA cv in
+  arwVert (vcoC.x,       vcoC.y+bh/2, vcaC.x,   vcaC.y-bh/2);   // VCO → VCA sig in
+
+  // Port labels on VCA
+  ovX.font='6px monospace';ovX.fillStyle='rgba(255,255,255,0.38)';
+  ovX.textAlign='left';  ovX.textBaseline='middle';
+  ovX.fillText('cv', vcaC.x-bw/2+3, vcaC.y-bh/4);
+  ovX.textAlign='center';ovX.textBaseline='bottom';
+  ovX.fillText('sig',vcaC.x, vcaC.y-bh/2+1);
+  ovX.textBaseline='alphabetic';
 
   const WN=72;
   function staticScopeBlock(c,label,waveFn,cycles,ledBr,stepMode){
@@ -846,7 +875,6 @@ function drawHowDiagram(){
 
   function vcoWave(ph){
     const gain=dot3Shape()*4;
-    // triangle wave input (matches Web Audio triangle oscillator)
     const v=(2/Math.PI)*Math.asin(Math.max(-1,Math.min(1,Math.sin(ph))));
     let a=v*gain;
     let iter=0;
@@ -854,7 +882,6 @@ function drawHowDiagram(){
     return a;
   }
 
-  // Gate square wave for CLK scope: shows actual pulse train going to S&H
   function clkGateWave(ph){
     const cyclePos=((ph/(2*Math.PI))%1+1)%1;
     const step=Math.floor(cyclePos*16)%16;
@@ -872,22 +899,22 @@ function drawHowDiagram(){
   staticScopeBlock(lfoC,'LFO',(ph)=>lfoWave(ph,dotShape(state.d0)),2,lfoBr,false);
   staticScopeBlock(clkC,'CLK',clkGateWave,clkCycles,clkLedBr,true);
   staticScopeBlock(vcoC,'VCO',vcoWave,2,0,false);
+  // VCA: VCO signal amplitude-modulated by current envelope
+  staticScopeBlock(vcaC,'VCA',ph=>vcoWave(ph)*state.vcaOut,2,0,false);
 
-  // ── S&H live scope (scrolls newest→left, oldest→right) ──
+  // ── S&H live scope (scrolls newest→left) ──
   const visN=Math.min(SCOPE_N,Math.max(4,Math.round(SCOPE_N/Math.max(0.125,shScopeScale))));
   const sb=shScopeBlock();
   ovX.fillStyle='rgba(0,0,6,1.0)';
   ovX.fillRect(sb.x,sb.y,sb.w,sb.h);
   ovX.strokeStyle=COL;ovX.lineWidth=1;
   ovX.strokeRect(sb.x,sb.y,sb.w,sb.h);
-  // Auto-scale indicator (blue dot top-right when active)
   ovX.beginPath();ovX.arc(sb.x+sb.w-7,sb.y+7,3,0,Math.PI*2);
   ovX.fillStyle=shScopeAutoScale?'rgba(0,180,255,0.7)':'rgba(255,255,255,0.15)';ovX.fill();
 
   const scx=sb.x+3,scy=sb.y+3,scw=sb.w-6,sch=sb.h-15;
   ovX.save();
   ovX.beginPath();ovX.rect(scx,scy,scw,sch);ovX.clip();
-  // Trigger lines (newest=left)
   for(let i=0;i<visN;i++){
     const si=(scopeHead-1-i+SCOPE_N*2)%SCOPE_N;
     if(scopeTrig[si]){
@@ -896,7 +923,6 @@ function drawHowDiagram(){
       ovX.beginPath();ovX.moveTo(x,scy);ovX.lineTo(x,scy+sch);ovX.stroke();
     }
   }
-  // LFO trace dim
   ovX.strokeStyle='rgba(255,255,255,0.22)';ovX.lineWidth=1;
   ovX.beginPath();
   for(let i=0;i<visN;i++){
@@ -906,7 +932,6 @@ function drawHowDiagram(){
     i===0?ovX.moveTo(x,y):ovX.lineTo(x,y);
   }
   ovX.stroke();
-  // S&H stepped output bright
   ovX.strokeStyle=COL;ovX.lineWidth=1.5;
   ovX.beginPath();
   let prevSH=null;
@@ -916,7 +941,6 @@ function drawHowDiagram(){
     const y=scy+sch/2-scopeSH[si]*sch/2*0.85;
     if(i===0){ovX.moveTo(x,y);}
     else if(prevSH!==null&&Math.abs(scopeSH[si]-prevSH)>0.01){
-      // draw vertical step
       ovX.lineTo(x,scy+sch/2-prevSH*sch/2*0.85);
       ovX.lineTo(x,y);
     } else {ovX.lineTo(x,y);}
@@ -927,6 +951,51 @@ function drawHowDiagram(){
   ovX.fillStyle=COL;
   ovX.font='8px monospace';ovX.textAlign='center';ovX.textBaseline='middle';
   ovX.fillText('S&H',sb.cx,sb.cy+sb.sbh/2-6);ovX.textBaseline='alphabetic';
+
+  // ── ENV live scope: static shape profile + phase cursor ──
+  {
+    const ex_=envC.x-bw/2,ey_=envC.y-bh/2;
+    ovX.fillStyle='rgba(0,0,6,1.0)';
+    ovX.fillRect(ex_,ey_,bw,bh);
+    ovX.strokeStyle=COL;ovX.lineWidth=1;
+    ovX.strokeRect(ex_,ey_,bw,bh);
+    const wx=ex_+3,wy=ey_+3,ww=bw-6,wh=bh-15;
+    const eMin=envMin(),eMax=envMax();
+    ovX.save();
+    ovX.beginPath();ovX.rect(wx,wy,ww,wh);ovX.clip();
+    // Envelope shape profile (background)
+    ovX.strokeStyle='rgba(255,255,255,0.30)';ovX.lineWidth=1;
+    ovX.beginPath();
+    for(let i=0;i<WN;i++){
+      const phase=i/(WN-1);
+      const val=envCurve(phase,eMin,eMax);
+      const x=wx+(i/(WN-1))*ww;
+      const y=wy+wh*(1-val*0.85);
+      i===0?ovX.moveTo(x,y):ovX.lineTo(x,y);
+    }
+    ovX.stroke();
+    // Filled area under curve
+    ovX.fillStyle='rgba(255,255,255,0.06)';
+    ovX.beginPath();
+    ovX.moveTo(wx,wy+wh);
+    for(let i=0;i<WN;i++){
+      const phase=i/(WN-1);
+      const val=envCurve(phase,eMin,eMax);
+      ovX.lineTo(wx+(i/(WN-1))*ww, wy+wh*(1-val*0.85));
+    }
+    ovX.lineTo(wx+ww,wy+wh);ovX.closePath();ovX.fill();
+    // Live phase cursor
+    const cursorX=wx+Math.max(0,Math.min(1,state.envPhase))*ww;
+    ovX.strokeStyle='rgba(255,255,0,0.85)';ovX.lineWidth=1;
+    ovX.beginPath();ovX.moveTo(cursorX,wy);ovX.lineTo(cursorX,wy+wh);ovX.stroke();
+    ovX.restore();
+    // Gate LED
+    ovX.beginPath();ovX.arc(envC.x+bw/2-7,ey_+7,3.5,0,Math.PI*2);
+    ovX.fillStyle=state.envGate?'rgba(255,40,40,0.9)':'rgba(255,40,40,0.08)';ovX.fill();
+    ovX.fillStyle=COL;
+    ovX.font='8px monospace';ovX.textAlign='center';ovX.textBaseline='middle';
+    ovX.fillText('ENV',envC.x,envC.y+bh/2-6);ovX.textBaseline='alphabetic';
+  }
 }
 
 // ── Overlay ───────────────────────────────────────────────────────────────────
@@ -1064,11 +1133,15 @@ function drawOverlay(){
   }
 
   // ── OSC dots ──
+  const sd_dot=selectedDot();
+  const frOff=(throwFrictionOffX||throwFrictionOffY)&&plotTouch&&plotTouch.coasting;
+  const frPulse=frOff?(Math.sin(performance.now()*0.004)+1)*0.5:0;
+  const frColor=`rgba(255,${Math.round(200+55*frPulse)},${Math.round(200*frPulse)},0.95)`;
   const botDots=[{k:'d0',m:'lfo'},{k:'d1',m:'clk'},{k:'d3',m:'vco'}];
   for(const {k,m} of botDots){
     const d=state[k],isSel=(activeModule===m);
     ovX.beginPath();ovX.arc(d.sx,d.sy,6,0,Math.PI*2);
-    ovX.fillStyle=isSel?'rgba(255,255,0,1.0)':'rgba(255,255,255,0.25)';
+    ovX.fillStyle=(frOff&&k===sd_dot)?frColor:isSel?'rgba(255,255,0,1.0)':'rgba(255,255,255,0.25)';
     ovX.fill();
   }
   const topDots=[{k:'dt',m:'time'},{k:'dsc',m:'scale'},{k:'d4',m:'env'}];
@@ -1076,7 +1149,7 @@ function drawOverlay(){
     if(activeModule!==m)continue;
     const d=state[k];
     ovX.beginPath();ovX.arc(d.sx,d.sy,6,0,Math.PI*2);
-    ovX.fillStyle='rgba(255,255,0,1.0)';
+    ovX.fillStyle=(frOff&&k===sd_dot)?frColor:'rgba(255,255,0,1.0)';
     ovX.fill();
   }
 
@@ -1142,8 +1215,22 @@ ovC.addEventListener('touchstart',e=>{
     }
     else if(HORIZ.includes(tgt)||tgt==='pitchStrip'){
       if(HORIZ.includes(tgt)){fineTune[t.identifier]={startY:cy_};}
-      applyMove(tgt,cx_,cy_);
-      const sd=selectedDot();if(sd){vel[sd].vx=0;vel[sd].vy=0;}
+      const sd=selectedDot();
+      if(tgt==='fader0'){
+        const fL_=Math.round(W/12),fR_=W-PITCH_W;
+        const dotX_=fL_+shapeFader*(fR_-fL_);
+        const onFDot=Math.hypot(cx_-dotX_,cy_-(botY()+FADER_H/2))<14;
+        if(onFDot){if(sd)vel[sd].vx=0;throwFrictionOffX=false;}
+        else{throwFrictionOffX=false;applyMove(tgt,cx_,cy_);if(sd)vel[sd].vx=0;}
+      } else if(tgt==='pitchStrip'){
+        const pDotY_=plotY()+(1-pitchFader)*plotH();
+        const onPDot=Math.hypot(cx_-(W-PITCH_W/2),cy_-pDotY_)<14;
+        if(onPDot){if(sd)vel[sd].vy=0;throwFrictionOffY=false;}
+        else{throwFrictionOffY=false;applyMove(tgt,cx_,cy_);if(sd)vel[sd].vy=0;}
+      } else {
+        applyMove(tgt,cx_,cy_);
+        if(sd){vel[sd].vx=0;vel[sd].vy=0;}
+      }
     }
     else if(tgt==='playPause'){ togglePause(); }
     else if(tgt==='shScope'){
@@ -1166,8 +1253,15 @@ ovC.addEventListener('touchstart',e=>{
         }
       }
       const sd=selectedDot();
-      const onDot=sd&&Math.hypot(cx_-state[sd].sx,cy_-state[sd].sy)<38;
-      plotTouch={x:cx_,y:cy_,id:t.identifier,active:true,direct:!!onDot,vx:0,vy:0,lastTime:performance.now(),coasting:false};
+      const onSelDot=sd&&Math.hypot(cx_-state[sd].sx,cy_-state[sd].sy)<38;
+      const inThrow=plotTouch&&plotTouch.coasting;
+      if(inThrow&&!onSelDot){
+        // Defer: may be a quick tap to toggle friction off
+        pendingFrictionOff={id:t.identifier,x:cx_,y:cy_,startX:cx_,startY:cy_,t:Date.now()};
+      } else {
+        if(inThrow){throwFrictionOffX=false;throwFrictionOffY=false;}
+        plotTouch={x:cx_,y:cy_,id:t.identifier,active:true,direct:!!onSelDot,vx:0,vy:0,lastTime:performance.now(),coasting:false};
+      }
     }
   }
 },{passive:false});
@@ -1188,6 +1282,15 @@ ovC.addEventListener('touchmove',e=>{
     }
     else if(tc.tgt==='pitchStrip')applyMove(tc.tgt,cx_,cy_);
     else if(HORIZ.includes(tc.tgt)){const ft=fineTune[t.identifier];applyMove(tc.tgt,ft?cx_-(cy_-ft.startY)*2:cx_,cy_);}
+    else if(pendingFrictionOff&&pendingFrictionOff.id===t.identifier){
+      pendingFrictionOff.x=cx_;pendingFrictionOff.y=cy_;
+      if(Math.hypot(cx_-pendingFrictionOff.startX,cy_-pendingFrictionOff.startY)>6){
+        // Moved — cancel pending, transition to normal attract
+        throwFrictionOffX=false;throwFrictionOffY=false;
+        plotTouch={x:cx_,y:cy_,id:t.identifier,active:true,direct:false,vx:0,vy:0,lastTime:performance.now(),coasting:false};
+        pendingFrictionOff=null;
+      }
+    }
     else if(plotTouch&&plotTouch.id===t.identifier){
       const now=performance.now(),dt2=Math.max(1,now-(plotTouch.lastTime||now));
       plotTouch.vx=(cx_-plotTouch.x)/dt2*16;plotTouch.vy=(cy_-plotTouch.y)/dt2*16;
@@ -1198,6 +1301,15 @@ ovC.addEventListener('touchmove',e=>{
 
 ovC.addEventListener('touchend',e=>{
   for(const t of e.changedTouches){
+    if(pendingFrictionOff&&pendingFrictionOff.id===t.identifier){
+      const tc=touches[t.identifier];
+      if(!tc||(!tc.moved&&Date.now()-pendingFrictionOff.t<TAP_MS)){
+        throwFrictionOffX=true;throwFrictionOffY=true;
+      }
+      pendingFrictionOff=null;
+      delete touches[t.identifier];delete fineTune[t.identifier];
+      continue;
+    }
     const tc=touches[t.identifier];
     if(tc&&tc.tgt==='topBtn'&&!presetOpen){
       presetHolding=false;
@@ -1217,6 +1329,14 @@ ovC.addEventListener('touchend',e=>{
 
 // ── Glide / physics ───────────────────────────────────────────────────────────
 function updateGlide(){
+  // If pendingFrictionOff has been held beyond TAP_MS, transition to attract mode
+  if(pendingFrictionOff&&Date.now()-pendingFrictionOff.t>TAP_MS){
+    throwFrictionOffX=false;throwFrictionOffY=false;
+    plotTouch={x:pendingFrictionOff.x,y:pendingFrictionOff.y,id:pendingFrictionOff.id,
+               active:true,direct:false,vx:0,vy:0,lastTime:performance.now(),coasting:false};
+    pendingFrictionOff=null;
+  }
+
   const sd=selectedDot();
   const pw=plotW(),ph=plotH(),py2=plotY(),mg=0,px3=plotX();
   const maxDist=Math.sqrt(pw*pw+ph*ph);
@@ -1225,7 +1345,9 @@ function updateGlide(){
   for(const k of allDotKeys){
     const d=state[k],v=vel[k];
     if(Math.abs(v.vx)<0.01&&Math.abs(v.vy)<0.01) continue;
-    v.vx*=0.998;v.vy*=0.998;
+    // Suppress baseline decay on selected dot's frictionless axes
+    if(!throwFrictionOffX||k!==sd) v.vx*=0.998;
+    if(!throwFrictionOffY||k!==sd) v.vy*=0.998;
     d.sx+=v.vx;d.sy+=v.vy;
     if(d.sx<px3+mg){d.sx=px3+mg;v.vx=Math.abs(v.vx)*0.4;}
     if(d.sx>px3+pw-mg){d.sx=px3+pw-mg;v.vx=-Math.abs(v.vx)*0.4;}
@@ -1259,9 +1381,10 @@ function updateGlide(){
       plotTouch.coasting=true;
       plotTouch._attractFriction=fingerSpd<2.0;
     }
-    const friction=plotTouch._attractFriction?0.92:COAST_FRICTION;
-    v.vx*=friction;v.vy*=friction;
-    if(Math.abs(v.vx)<0.01&&Math.abs(v.vy)<0.01) plotTouch=null;
+    const baseFr=plotTouch._attractFriction?0.92:COAST_FRICTION;
+    v.vx*=throwFrictionOffX?1.0:baseFr;
+    v.vy*=throwFrictionOffY?1.0:baseFr;
+    if(!throwFrictionOffX&&!throwFrictionOffY&&Math.abs(v.vx)<0.01&&Math.abs(v.vy)<0.01)plotTouch=null;
   }
 }
 
@@ -1358,15 +1481,45 @@ ovC.addEventListener('mousedown',e=>{
       if(m!==activeModule&&Math.hypot(cx_-state[k].sx,cy_-state[k].sy)<38){selectModule(m);break;}
     }
     const sd=selectedDot();
-    const onDot=sd&&Math.hypot(cx_-state[sd].sx,cy_-state[sd].sy)<38;
-    plotTouch={x:cx_,y:cy_,id:'mouse',active:true,direct:!!onDot,vx:0,vy:0,lastTime:performance.now(),coasting:false};
+    const onSelDot=sd&&Math.hypot(cx_-state[sd].sx,cy_-state[sd].sy)<38;
+    const inThrow=plotTouch&&plotTouch.coasting;
+    if(inThrow&&!onSelDot){
+      pendingFrictionOff={id:'mouse',x:cx_,y:cy_,startX:cx_,startY:cy_,t:Date.now()};
+    } else {
+      if(inThrow){throwFrictionOffX=false;throwFrictionOffY=false;}
+      plotTouch={x:cx_,y:cy_,id:'mouse',active:true,direct:!!onSelDot,vx:0,vy:0,lastTime:performance.now(),coasting:false};
+    }
+  }
+  else if(mTgt==='fader0'){
+    const fL_=Math.round(W/12),fR_=W-PITCH_W;
+    const dotX_=fL_+shapeFader*(fR_-fL_);
+    const onFDot=Math.hypot(cx_-dotX_,cy_-(botY()+FADER_H/2))<14;
+    const sd_=selectedDot();
+    if(onFDot){if(sd_)vel[sd_].vx=0;throwFrictionOffX=false;}
+    else{throwFrictionOffX=false;applyMove('fader0',cx_,cy_);if(sd_)vel[sd_].vx=0;}
+  }
+  else if(mTgt==='pitchStrip'){
+    const pDotY_=plotY()+(1-pitchFader)*plotH();
+    const onPDot=Math.hypot(cx_-(W-PITCH_W/2),cy_-pDotY_)<14;
+    const sd_=selectedDot();
+    if(onPDot){if(sd_)vel[sd_].vy=0;throwFrictionOffY=false;}
+    else{throwFrictionOffY=false;applyMove('pitchStrip',cx_,cy_);if(sd_)vel[sd_].vy=0;}
   }
   else if(mTgt){ applyMove(mTgt,cx_,cy_); }
 });
 
 window.addEventListener('mousemove',e=>{
-  if(!mTgt)return;
   const cx_=ex(e.clientX), cy_=e.clientY;
+  if(pendingFrictionOff&&pendingFrictionOff.id==='mouse'){
+    pendingFrictionOff.x=cx_;pendingFrictionOff.y=cy_;
+    if(Math.hypot(cx_-pendingFrictionOff.startX,cy_-pendingFrictionOff.startY)>6){
+      throwFrictionOffX=false;throwFrictionOffY=false;
+      plotTouch={x:cx_,y:cy_,id:'mouse',active:true,direct:false,vx:0,vy:0,lastTime:performance.now(),coasting:false};
+      pendingFrictionOff=null;
+    }
+    return;
+  }
+  if(!mTgt)return;
   if(shScopeInteract&&shScopeInteract.id==='mouse'){
     const dy=cy_-shScopeInteract.startY;
     if(Math.abs(dy)>6){
@@ -1384,6 +1537,14 @@ window.addEventListener('mousemove',e=>{
 });
 
 window.addEventListener('mouseup',e=>{
+  if(pendingFrictionOff&&pendingFrictionOff.id==='mouse'){
+    if(Date.now()-pendingFrictionOff.t<TAP_MS){
+      throwFrictionOffX=true;throwFrictionOffY=true;
+    }
+    pendingFrictionOff=null;
+    mTgt=null;
+    return;
+  }
   if(presetHoldTimer){ clearTimeout(presetHoldTimer); presetHoldTimer=null; }
   if(mTgt==='topBtn'&&!presetOpen){
     presetHolding=false;
