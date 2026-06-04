@@ -63,7 +63,7 @@ const BOTTOM_MODS=[
   {key:'vco',label:'VCO'},
 ];
 const TOP_MODS=[
-  {key:'how',label:'?'},
+  {key:'how',label:'INFO'},
   {key:'time',  label:'TIME'},
   {key:'scale', label:'SCALE'},
   {key:'env',   label:'ENV'},
@@ -334,6 +334,7 @@ function syncFadersFromDot(key){
   const d=state[key];
   shapeFader=Math.max(0,Math.min(1,(d.sx-plotX())/plotW()));
   pitchFader=1-Math.max(0,Math.min(1,(d.sy-plotY())/plotH()));
+  if(key==='d1') clkVisShape=shapeFader; // keep CLK wave shape in sync with dot X
 }
 function syncDotFromFaders(key){
   state[key].sx=plotX()+shapeFader*plotW();
@@ -784,10 +785,11 @@ function drawHowDiagram(){
 
   const bw=72,bh=42;
   const sbw=96,sbh=54;
-  const lfoC={x:px+pw*0.13,y:py+dh*0.30};
-  const clkC={x:px+pw*0.13,y:py+dh*0.58};  // closer to LFO (was 0.74)
-  const shC ={x:px+pw*0.52,y:py+dh*0.30};  // aligned with LFO (was 0.50)
-  const vcoC={x:px+pw*0.87,y:py+dh*0.30};  // aligned with LFO (was 0.50)
+  const rowY=py+dh*0.30-bh; // all main blocks shifted up by one block height
+  const lfoC={x:px+pw*0.13,y:rowY};
+  const clkC={x:px+pw*0.13,y:py+dh*0.58-bh};
+  const shC ={x:px+pw*0.52,y:rowY};
+  const vcoC={x:px+pw*0.87,y:rowY};
 
   const COL='rgba(255,255,255,0.55)';
 
@@ -1077,14 +1079,6 @@ function drawOverlay(){
     ovX.fill();
   }
 
-  // ── Scale name + ENV label ──
-  const NOTE_NAMES=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
-  const VARIANT_NAMES=['','PENT','b7','#4','LYD7'];
-  const vname=VARIANT_NAMES[scaleVariant()];
-  ovX.fillStyle='rgba(255,255,255,0.2)';ovX.font='7px monospace';
-  ovX.textAlign='left';ovX.fillText('ENV:TRI',px2+2,py+12);
-  ovX.textAlign='right';ovX.fillText(NOTE_NAMES[scaleRootOffset()]+' '+SCALE_NAMES[getScaleIdx()]+(vname?' '+vname:''),px2+pw-2,py+12);
-
   // ── Hold-to-open hint on top buttons ──
   if(presetHolding){
     const progress=Math.min(1,(Date.now()-presetHoldStart)/PRESET_HOLD_MS);
@@ -1108,6 +1102,11 @@ function handleModuleSelect(x,y){
     const idx=Math.floor(x/(W/4));
     const m=TOP_MODS[Math.max(0,Math.min(3,idx))];
     if(m.key==='how'){showHow=!showHow;return true;}
+    if(m.key==='env'&&activeModule==='env'){
+      // Tap ENV again while on ENV page → manual trigger + reset div counter
+      state.envPhase=0;state.envGate=true;state.envClkCount=0;
+      return true;
+    }
     selectModule(m.key); return true;
   }
   if(y>=botY()+BOT_H){
@@ -1388,8 +1387,7 @@ window.addEventListener('mouseup',e=>{
   if(mTgt==='topBtn'&&!presetOpen){
     presetHolding=false;
     if(Date.now()-mouseDownTime<PRESET_HOLD_MS){
-      const tm=TOP_MODS[Math.max(0,Math.min(3,Math.floor(ex(e.clientX)/(W/4))))];
-      if(tm.key==='how'){showHow=!showHow;}else{selectModule(tm.key);}
+      handleModuleSelect(ex(e.clientX),e.clientY);
     }
   }
   if(shScopeInteract&&shScopeInteract.id==='mouse'){
