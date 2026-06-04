@@ -71,7 +71,7 @@ let activeModule='lfo';
 function selectModule(key){
   activeModule=key;
   const sd=MODULE_DOT[key];
-  if(sd && state[sd]) syncFadersFromDot(sd);
+  if(sd && state[sd] && key!=='time' && key!=='screen') syncFadersFromDot(sd);
 }
 
 // ── Scales ────────────────────────────────────────────────────────────────────
@@ -343,7 +343,7 @@ function applyDecay(){
     applyDecay.skewAcc-=skewPx;
     if(skewPx>0){
       const px_=plotX()|0, pw_=plotW()|0, py_=plotY()|0, ph_=plotH()|0;
-      const cx=px_+pw_*0.5, cy=py_+ph_*0.5;
+      const cx=W*0.5, cy=py_+ph_*0.5;
       const tmp=new Uint8ClampedArray(buf8.length);
       tmp.set(buf8);
       for(let y=0;y<H;y++){
@@ -392,7 +392,7 @@ function wuLine(x0,y0,x1,y1){
 }
 function oscToScreen(xv,yv){
   const pw=plotW(), ph=plotH();
-  const renderCx=plotX()+pw*0.5;
+  const renderCx=W*0.5;
   const renderRx=pw*0.42;
   const renderRy=ph*0.42;
   let x=renderCx+xv*renderRx;
@@ -813,7 +813,7 @@ function drawOverlay(){
   const botDots=[{k:'d0',m:'lfo'},{k:'d1',m:'clk'},{k:'d3',m:'vco'}];
   for(const {k,m} of botDots){
     const d=state[k],isSel=(activeModule===m);
-    ovX.beginPath();ovX.arc(d.sx,d.sy,4,0,Math.PI*2);
+    ovX.beginPath();ovX.arc(d.sx,d.sy,6,0,Math.PI*2);
     ovX.fillStyle=isSel?'rgba(255,255,0,1.0)':'rgba(255,255,255,0.25)';
     ovX.fill();
     if(isSel){
@@ -827,7 +827,7 @@ function drawOverlay(){
   for(const {k,m} of topDots){
     if(activeModule!==m)continue;
     const d=state[k];
-    ovX.beginPath();ovX.arc(d.sx,d.sy,4,0,Math.PI*2);
+    ovX.beginPath();ovX.arc(d.sx,d.sy,6,0,Math.PI*2);
     ovX.fillStyle='rgba(255,255,0,1.0)';
     ovX.fill();
     const xv=Math.round(dotShape(d)*100);
@@ -971,7 +971,7 @@ function updateGlide(){
     if(d.sx>px3+pw-mg){d.sx=px3+pw-mg;v.vx=-Math.abs(v.vx)*0.4;}
     if(d.sy<py2+mg){d.sy=py2+mg;v.vy=Math.abs(v.vy)*0.4;}
     if(d.sy>py2+ph-mg){d.sy=py2+ph-mg;v.vy=-Math.abs(v.vy)*0.4;}
-    if(k===sd) syncFadersFromDot(sd);
+    if(k===sd&&activeModule!=='time'&&activeModule!=='screen') syncFadersFromDot(sd);
   }
 
   if(!sd) return;
@@ -991,7 +991,7 @@ function updateGlide(){
       const spd=Math.sqrt(v.vx*v.vx+v.vy*v.vy);
       if(spd>dist){v.vx=nx*dist*0.9;v.vy=ny*dist*0.9;}
     }
-    syncFadersFromDot(sd);
+    if(activeModule!=='time'&&activeModule!=='screen') syncFadersFromDot(sd);
   } else if(plotTouch&&!plotTouch.active){
     if(!plotTouch.coasting){
       const fingerSpd=Math.sqrt(plotTouch.vx*plotTouch.vx+plotTouch.vy*plotTouch.vy);
@@ -1027,13 +1027,13 @@ function applyMove(tgt,x,y){
   if(tgt==='fader0'){
     shapeFader=Math.max(0,Math.min(1,(x-fL)/(fR-fL)));
     if(activeModule==='clk') clkVisShape=shapeFader;
-    const sd=selectedDot();if(sd)syncDotFromFaders(sd);
+    const sd=selectedDot();if(sd&&activeModule!=='time'&&activeModule!=='screen')syncDotFromFaders(sd);
   } else if(tgt==='fader1'){
     decayVal=Math.max(0,Math.min(1,(x-fL)/(fR-fL)));
   } else if(tgt==='pitchStrip'){
     const py_=plotY(),ph_=plotH();
     pitchFader=1-Math.max(0,Math.min(1,(y-py_)/ph_));
-    const sd=selectedDot();if(sd)syncDotFromFaders(sd);
+    const sd=selectedDot();if(sd&&activeModule!=='time'&&activeModule!=='screen')syncDotFromFaders(sd);
   }
 }
 
