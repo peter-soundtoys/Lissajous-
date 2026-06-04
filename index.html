@@ -39,9 +39,9 @@ const BTN_H   = 28;
 const BOT_H   = FADER_H * 2;
 
 function plotW(){ return W - PITCH_W - Math.round(W/12); }
-function plotH(){ return Math.max(50, H - TOP_H - LED_H - BOT_H - BTN_H - 60); }
+function plotH(){ return Math.max(50, H - TOP_H - LED_H - BOT_H - BTN_H - 88); }
 function plotX(){ return Math.round(W/12); }
-function plotY(){ return TOP_H + LED_H + 12; }
+function plotY(){ return TOP_H + LED_H + 40; }
 function botY() { return plotY() + plotH(); }
 
 function resize(){
@@ -776,7 +776,7 @@ function frame(ts){
 function shScopeBlock(){
   const px=plotX(),py=plotY(),pw=plotW(),dh=plotH()/3;
   const bh=42,sbw=96,sbh=54;
-  const shCx=px+pw*0.52,shCy=py+dh*0.30-bh; // matches rowY in drawHowDiagram
+  const shCx=px+pw*0.52,shCy=py+dh*0.30-Math.round(bh*2/3); // matches rowY in drawHowDiagram
   return{x:shCx-sbw/2,y:shCy-sbh/2,w:sbw,h:sbh,cx:shCx,cy:shCy,sbw,sbh};
 }
 
@@ -786,9 +786,9 @@ function drawHowDiagram(){
 
   const bw=72,bh=42;
   const sbw=96,sbh=54;
-  const rowY=py+dh*0.30-bh; // all main blocks shifted up by one block height
+  const rowY=py+dh*0.30-Math.round(bh*2/3); // bh*2/3 ≈ 28px above baseline
   const lfoC={x:px+pw*0.13,y:rowY};
-  const clkC={x:px+pw*0.13,y:py+dh*0.58-bh};
+  const clkC={x:px+pw*0.13,y:py+dh*0.58-Math.round(bh*2/3)};
   const shC ={x:px+pw*0.52,y:rowY};
   const vcoC={x:px+pw*0.87,y:rowY};
 
