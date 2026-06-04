@@ -153,6 +153,7 @@ let currentClkDivide=1;
 let shScopeAutoScale=true;
 let shScopeScale=1.0;
 let shScopeInteract=null;
+let fineTuneSemitones=0;
 let showHow=false;
 const SCOPE_N=120;
 const scopeLFO=new Float32Array(SCOPE_N);
@@ -481,19 +482,19 @@ let verbNodes=[],verbGain=null,verbInput=null,wetLimiter=null;
 let verbFbkGain=null,verbFbkDelay=null;
 const N_HARM=32; let lastAudioShape=-1;
 
-function makeFoldCurve(folds){
+function makeFoldCurve(gain){
+  // gain 0-4: amplify oscillator ±1 signal then fold back at hard ±1 limits
+  // gain=1: no fold, gain=4: 3 folds
   const N=1024;
   const curve=new Float32Array(N);
   for(let i=0;i<N;i++){
     let v=(i/N)*2-1;
-    for(let f=0;f<4;f++){
-      const depth=Math.max(0,Math.min(1,folds-f));
-      if(depth<0.001)break;
-      const thresh=Math.max(0.1,1-f*0.22);
-      const folded=v>thresh?2*thresh-v:v<-thresh?-2*thresh-v:v;
-      v=v+(folded-v)*depth;
+    let a=v*gain;
+    let iter=0;
+    while((a>1||a<-1)&&iter++<16){
+      if(a>1)a=2-a;else if(a<-1)a=-2-a;
     }
-    curve[i]=v;
+    curve[i]=a;
   }
   return curve;
 }
@@ -565,6 +566,7 @@ function updateAudio(){
   const degIdx=Math.round(scaleY()*(scArr2.length-1));
   const semiOffset=scArr2[Math.max(0,Math.min(scArr2.length-1,degIdx))];
   let semitones=quantize(baseSt+sh*0.5*24+semiOffset,idx)+rootOffset;
+  if(activeModule==='vco')semitones+=fineTuneSemitones;
   const freq=440*Math.pow(2,semitones/12);
   o3Node.frequency.setValueAtTime(Math.max(20,Math.min(8000,freq)),ct);
   const shapeF=Math.max(0,Math.min(1,dot3Shape()));
@@ -621,7 +623,9 @@ function frame(ts){
     bgX.clearRect(0,0,W,H);bgX.drawImage(scrC,0,0);
     drawOverlay();requestAnimationFrame(frame);return;
   }
-  const f0=lfoFreq(state.d0),f1=dotFreq(state.d1);
+  const ftMul=Math.pow(2,fineTuneSemitones/12);
+  const f0=lfoFreq(state.d0)*(activeModule==='lfo'?ftMul:1);
+  const f1=dotFreq(state.d1)*(activeModule==='clk'?ftMul:1);
   state.clkFreq=f1;
   const sh0=dotShape(state.d0);
   const fastFreq=Math.max(f0,f1);
@@ -814,16 +818,13 @@ function drawHowDiagram(){
   }
 
   function vcoWave(ph){
-    const folds=dot3Shape()*4;
-    let v=Math.sin(ph);
-    for(let f=0;f<4;f++){
-      const depth=Math.max(0,Math.min(1,folds-f));
-      if(depth<0.001)break;
-      const thresh=Math.max(0.1,1-f*0.22);
-      const folded=v>thresh?2*thresh-v:v<-thresh?-2*thresh-v:v;
-      v=v+(folded-v)*depth;
-    }
-    return v;
+    const gain=dot3Shape()*4;
+    // triangle wave input (matches Web Audio triangle oscillator)
+    const v=(2/Math.PI)*Math.asin(Math.max(-1,Math.min(1,Math.sin(ph))));
+    let a=v*gain;
+    let iter=0;
+    while((a>1||a<-1)&&iter++<16){if(a>1)a=2-a;else if(a<-1)a=-2-a;}
+    return a;
   }
 
   // Gate square wave for CLK scope: shows actual pulse train going to S&H
@@ -1003,6 +1004,16 @@ function drawOverlay(){
   const pitchDotY=py+(1-pitchFader)*ph;
   ovX.beginPath();ovX.arc(psMid,pitchDotY,6,0,Math.PI*2);
   ovX.fillStyle='rgba(255,255,255,0.85)';ovX.fill();
+  // Fine tune indicator: highlight pitch dot and show offset bar when active
+  if(fineTuneSemitones<-0.02){
+    const ftAmt=-fineTuneSemitones/2; // 0..1
+    ovX.beginPath();ovX.arc(psMid,pitchDotY,6,0,Math.PI*2);
+    ovX.fillStyle=`rgba(255,200,0,${0.4+ftAmt*0.5})`;ovX.fill();
+    // small bar below dot showing detune depth
+    const barW=(PITCH_W-8)*ftAmt;
+    ovX.fillStyle='rgba(255,200,0,0.6)';
+    ovX.fillRect(psX+4,pitchDotY+9,barW,2);
+  }
 
   // ── Bottom fader zone ──
   function drawHFader(rowY,val){
@@ -1184,6 +1195,7 @@ ovC.addEventListener('touchend',e=>{
       if(!shScopeInteract.moved) shScopeAutoScale=!shScopeAutoScale;
       shScopeInteract=null;
     }
+    if(tc&&tc.tgt==='pitchStrip') fineTuneSemitones=0;
     if(plotTouch&&plotTouch.id===t.identifier)plotTouch.active=false;
     delete touches[t.identifier];delete fineTune[t.identifier];
   }
@@ -1274,8 +1286,15 @@ function applyMove(tgt,x,y){
     decayVal=Math.max(0,Math.min(1,(x-fL)/(fR-fL)));
   } else if(tgt==='pitchStrip'){
     const py_=plotY(),ph_=plotH();
-    pitchFader=1-Math.max(0,Math.min(1,(y-py_)/ph_));
-    const sd=selectedDot();if(sd)syncDotFromFaders(sd);
+    const ftEdge=W-PITCH_W-28;
+    if(x<ftEdge){
+      // Fine tune zone: freeze pitch, map x→ up to -2 semitones
+      fineTuneSemitones=-2*Math.max(0,Math.min(1,(ftEdge-x)/90));
+    } else {
+      fineTuneSemitones=0;
+      pitchFader=1-Math.max(0,Math.min(1,(y-py_)/ph_));
+      const sd=selectedDot();if(sd)syncDotFromFaders(sd);
+    }
   }
 }
 
@@ -1355,6 +1374,7 @@ window.addEventListener('mouseup',e=>{
     if(!shScopeInteract.moved) shScopeAutoScale=!shScopeAutoScale;
     shScopeInteract=null;
   }
+  if(mTgt==='pitchStrip') fineTuneSemitones=0;
   if(plotTouch&&plotTouch.id==='mouse') plotTouch.active=false;
   mTgt=null;
 });
