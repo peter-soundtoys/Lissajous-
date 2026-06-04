@@ -1303,7 +1303,7 @@ function applyMove(tgt,x,y){
     if(x<ftEdge){
       // Fine tune: Y controls pitch, sensitivity = x/ftEdge (right=1:1, left=fine)
       ftActive=true;
-      const sensitivity=Math.max(0.01,Math.min(1,x/ftEdge));
+      const sensitivity=Math.max(0.01,Math.min(1,1-x/ftEdge));
       if(ftPrevY!==null){
         const dy=y-ftPrevY;
         pitchFader=Math.max(0,Math.min(1,pitchFader-dy*sensitivity/ph_));
