@@ -148,6 +148,11 @@ const state={
 
 let shapeFader=0.0,pitchFader=0.5,decayVal=0.0,xfadeVal=0.0,auxFader=0.5;
 let clkVisShape=0.50;
+let paused=false;
+let currentClkDivide=1;
+let shScopeAutoScale=true;
+let shScopeScale=1.0;
+let shScopeInteract=null;
 let showHow=false;
 const SCOPE_N=120;
 const scopeLFO=new Float32Array(SCOPE_N);
@@ -176,6 +181,12 @@ let presetHolding=false, presetHoldStart=0, presetHoldTimer=null;
 let presetFlashT=0;
 let mouseDownTime=0;
 const PRESET_HOLD_MS=800;
+
+function togglePause(){
+  paused=!paused;
+  if(paused){if(audioCtx)audioCtx.suspend();}
+  else{if(audioCtx)audioCtx.resume();lastT=null;}
+}
 
 function openPresets(){ presetOpen=true; presetAction='load'; presetConfirmSlot=-1; }
 function closePresets(){ presetOpen=false; presetAction=null; presetConfirmSlot=-1; }
@@ -420,12 +431,17 @@ function wuLine(x0,y0,x1,y1){
 function oscToScreen(xv,yv){
   const pw=plotW(), ph=plotH();
   const renderCx=W*0.5;
+  const renderCy=plotY()+ph*0.5;
   const renderRx=pw*0.42;
   const renderRy=ph*0.42;
   let x=renderCx+xv*renderRx;
-  let y=plotY()+ph*0.5+yv*renderRy;
+  let y=renderCy+yv*renderRy;
   const crush=dot3Shape();
-  if(crush>0.02){const g=Math.pow(2,crush*5);x=Math.round(x/g)*g;y=Math.round(y/g)*g;}
+  if(crush>0.02){
+    const g=Math.pow(2,crush*5);
+    x=renderCx+Math.round((x-renderCx)/g)*g;
+    y=renderCy+Math.round((y-renderCy)/g)*g;
+  }
   return{x,y};
 }
 
@@ -600,6 +616,11 @@ let lastT=null;
 function frame(ts){
   if(!lastT)lastT=ts;
   const dt=Math.min((ts-lastT)/1000,0.033);lastT=ts;
+  if(paused){
+    scrX.putImageData(imgData,0,0);
+    bgX.clearRect(0,0,W,H);bgX.drawImage(scrC,0,0);
+    drawOverlay();requestAnimationFrame(frame);return;
+  }
   const f0=lfoFreq(state.d0),f1=dotFreq(state.d1);
   state.clkFreq=f1;
   const sh0=dotShape(state.d0);
@@ -620,6 +641,7 @@ function frame(ts){
   const CLK_DIVS=[16,8,4,2,1];
   const clkDivIdx=Math.round(clkX*(CLK_DIVS.length-1));
   const clkDivide=CLK_DIVS[Math.max(0,Math.min(CLK_DIVS.length-1,clkDivIdx))];
+  currentClkDivide=clkDivide;
   const euclPat=new Array(euclSteps).fill(0);
   for(let i=0;i<euclSteps;i++) euclPat[i]=(i%clkDivide===0)?1:0;
 
@@ -702,6 +724,16 @@ function frame(ts){
   scopePrevGate=state.euclGate;
   scopeHead=(scopeHead+1)%SCOPE_N;
 
+  if(shScopeAutoScale){
+    let trigCount=0;
+    for(let i=0;i<SCOPE_N;i++) if(scopeTrig[i]) trigCount++;
+    if(trigCount>0){
+      const samplesPerTrig=SCOPE_N/trigCount;
+      const target=Math.max(0.125,Math.min(8,SCOPE_N/(samplesPerTrig*3)));
+      shScopeScale+=(target-shScopeScale)*0.03;
+    }
+  }
+
   scrX.putImageData(imgData,0,0);
   bgX.clearRect(0,0,W,H);
   bgX.globalAlpha=1.0;
@@ -712,68 +744,75 @@ function frame(ts){
 }
 
 // ── HOW block diagram ─────────────────────────────────────────────────────────
+function shScopeBlock(){
+  const px=plotX(),py=plotY(),pw=plotW(),dh=plotH()/3;
+  const sbw=96,sbh=54,shCx=px+pw*0.52,shCy=py+dh*0.50;
+  return{x:shCx-sbw/2,y:shCy-sbh/2,w:sbw,h:sbh,cx:shCx,cy:shCy,sbw,sbh};
+}
+
 function drawHowDiagram(){
   if(!showHow)return;
   const px=plotX(),py=plotY(),pw=plotW(),dh=plotH()/3;
 
-  // Layout: LFO top-left, CLK bottom-left, S&H center, VCO center-right
-  const bw=72,bh=42;      // LFO/CLK/VCO scope blocks
-  const sbw=96,sbh=54;    // S&H scope block (keeps live scope)
+  const bw=72,bh=42;
+  const sbw=96,sbh=54;
   const lfoC={x:px+pw*0.13,y:py+dh*0.28};
   const clkC={x:px+pw*0.13,y:py+dh*0.74};
   const shC ={x:px+pw*0.52,y:py+dh*0.50};
   const vcoC={x:px+pw*0.87,y:py+dh*0.50};
 
-  const COL='rgba(255,255,255,0.55)'; // unified color for all outlines & arrows
+  const COL='rgba(255,255,255,0.55)';
 
-  // ── Arrows (no moving dots) ──
-  function arw(x1,y1,x2,y2){
-    const dx=x2-x1,dy=y2-y1,len=Math.hypot(dx,dy);
-    if(len<2)return;
-    const nx=dx/len,ny=dy/len;
+  // Orthogonal arrow (no diagonals): horizontal → vertical → horizontal
+  function arwOrtho(x1,y1,x2,y2){
+    const midX=(x1+x2)*0.5;
     ovX.strokeStyle=COL;ovX.lineWidth=1;
-    ovX.beginPath();ovX.moveTo(x1,y1);ovX.lineTo(x2,y2);ovX.stroke();
-    const hx=x2-nx*6,hy=y2-ny*6;
-    ovX.beginPath();ovX.moveTo(x2,y2);ovX.lineTo(hx-ny*3,hy+nx*3);ovX.lineTo(hx+ny*3,hy-nx*3);
+    ovX.beginPath();ovX.moveTo(x1,y1);ovX.lineTo(midX,y1);ovX.lineTo(midX,y2);ovX.lineTo(x2,y2);ovX.stroke();
+    const dir=x2>=x1?1:-1;
+    ovX.beginPath();ovX.moveTo(x2,y2);ovX.lineTo(x2-dir*6,y2-3);ovX.lineTo(x2-dir*6,y2+3);
     ovX.closePath();ovX.fillStyle=COL;ovX.fill();
   }
-  arw(lfoC.x+bw/2, lfoC.y,      shC.x-sbw/2, shC.y);
-  arw(clkC.x+bw/2, clkC.y,      shC.x-sbw/2, shC.y);
-  arw(shC.x+sbw/2, shC.y,       vcoC.x-bw/2, vcoC.y);
 
-  // ── Static scope block (LFO, CLK, VCO) ──
-  const WN=56; // waveform sample count
-  function staticScopeBlock(c,label,waveFn,cycles,ledBr){
-    // Opaque background
+  // LFO → S&H left side, 1/4 from top
+  arwOrtho(lfoC.x+bw/2, lfoC.y,   shC.x-sbw/2, shC.y-sbh/4);
+  // CLK → S&H left side, 1/4 from bottom
+  arwOrtho(clkC.x+bw/2, clkC.y,   shC.x-sbw/2, shC.y+sbh/4);
+  // S&H → VCO (same Y, simple horizontal)
+  arwOrtho(shC.x+sbw/2, shC.y,    vcoC.x-bw/2, vcoC.y);
+
+  const WN=72;
+  function staticScopeBlock(c,label,waveFn,cycles,ledBr,stepMode){
     ovX.fillStyle='rgba(0,0,6,1.0)';
     ovX.fillRect(c.x-bw/2,c.y-bh/2,bw,bh);
     ovX.strokeStyle=COL;ovX.lineWidth=1;
     ovX.strokeRect(c.x-bw/2,c.y-bh/2,bw,bh);
-    // Waveform area (top portion, 12px at bottom for label)
     const wx=c.x-bw/2+3,wy=c.y-bh/2+3,ww=bw-6,wh=bh-15;
     ovX.strokeStyle=COL;ovX.lineWidth=1;
     ovX.beginPath();
+    let prevV=null;
     for(let i=0;i<WN;i++){
       const ph=(i/(WN-1))*cycles*2*Math.PI;
       const v=waveFn(ph);
       const x=wx+(i/(WN-1))*ww;
       const y=wy+wh/2-v*wh/2*0.85;
-      i===0?ovX.moveTo(x,y):ovX.lineTo(x,y);
+      if(i===0){ovX.moveTo(x,y);}
+      else if(stepMode&&prevV!==null&&Math.abs(v-prevV)>0.5){
+        ovX.lineTo(x,wy+wh/2-prevV*wh/2*0.85);
+        ovX.lineTo(x,y);
+      } else {ovX.lineTo(x,y);}
+      prevV=v;
     }
     ovX.stroke();
-    // Label
     ovX.fillStyle=COL;
     ovX.font='8px monospace';ovX.textAlign='center';ovX.textBaseline='middle';
     ovX.fillText(label,c.x,c.y+bh/2-6);
     ovX.textBaseline='alphabetic';
-    // Red LED (inside block, top-right corner)
     if(ledBr>0){
       ovX.beginPath();ovX.arc(c.x+bw/2-7,c.y-bh/2+7,3.5,0,Math.PI*2);
       ovX.fillStyle=`rgba(255,40,40,${ledBr.toFixed(2)})`;ovX.fill();
     }
   }
 
-  // VCO wavefold display (mirrors makeFoldCurve logic on a sine input)
   function vcoWave(ph){
     const folds=dot3Shape()*4;
     let v=Math.sin(ph);
@@ -787,60 +826,79 @@ function drawHowDiagram(){
     return v;
   }
 
-  // CLK: show enough cycles to illustrate freq ratio vs LFO
+  // Gate square wave for CLK scope: shows actual pulse train going to S&H
+  function clkGateWave(ph){
+    const cyclePos=((ph/(2*Math.PI))%1+1)%1;
+    const step=Math.floor(cyclePos*16)%16;
+    const gate=(step%currentClkDivide===0)?1:0;
+    const stepPos=cyclePos*16-step;
+    return (gate&&stepPos<0.5)?0.8:-0.8;
+  }
+
   const lfoF=lfoFreq(state.d0);
   const clkF=state.clkFreq||lfoF;
   const clkCycles=Math.max(2,Math.min(16,Math.round(clkF/lfoF*2)));
-
-  // LFO LED pulses with waveform, CLK LED flashes on trigger
   const lfoBr=(Math.sin(state.ph0)+1)*0.5*0.85+0.08;
   const clkLedBr=0.08+clkFlash*0.92;
 
-  staticScopeBlock(lfoC,'LFO',(ph)=>lfoWave(ph,dotShape(state.d0)),2,lfoBr);
-  staticScopeBlock(clkC,'CLK',(ph)=>clkWave(ph,clkVisShape),clkCycles,clkLedBr);
-  staticScopeBlock(vcoC,'VCO',vcoWave,2,0);
+  staticScopeBlock(lfoC,'LFO',(ph)=>lfoWave(ph,dotShape(state.d0)),2,lfoBr,false);
+  staticScopeBlock(clkC,'CLK',clkGateWave,clkCycles,clkLedBr,true);
+  staticScopeBlock(vcoC,'VCO',vcoWave,2,0,false);
 
-  // ── S&H block: live scope (incoming LFO + stepped output + CLK triggers) ──
+  // ── S&H live scope (scrolls newest→left, oldest→right) ──
+  const visN=Math.min(SCOPE_N,Math.max(4,Math.round(SCOPE_N/Math.max(0.125,shScopeScale))));
+  const sb=shScopeBlock();
   ovX.fillStyle='rgba(0,0,6,1.0)';
-  ovX.fillRect(shC.x-sbw/2,shC.y-sbh/2,sbw,sbh);
+  ovX.fillRect(sb.x,sb.y,sb.w,sb.h);
   ovX.strokeStyle=COL;ovX.lineWidth=1;
-  ovX.strokeRect(shC.x-sbw/2,shC.y-sbh/2,sbw,sbh);
-  const scx=shC.x-sbw/2+3,scy=shC.y-sbh/2+3,scw=sbw-6,sch=sbh-15;
+  ovX.strokeRect(sb.x,sb.y,sb.w,sb.h);
+  // Auto-scale indicator (blue dot top-right when active)
+  ovX.beginPath();ovX.arc(sb.x+sb.w-7,sb.y+7,3,0,Math.PI*2);
+  ovX.fillStyle=shScopeAutoScale?'rgba(0,180,255,0.7)':'rgba(255,255,255,0.15)';ovX.fill();
+
+  const scx=sb.x+3,scy=sb.y+3,scw=sb.w-6,sch=sb.h-15;
   ovX.save();
   ovX.beginPath();ovX.rect(scx,scy,scw,sch);ovX.clip();
-  // CLK trigger lines
-  for(let i=0;i<SCOPE_N;i++){
-    const si=(scopeHead+i)%SCOPE_N;
+  // Trigger lines (newest=left)
+  for(let i=0;i<visN;i++){
+    const si=(scopeHead-1-i+SCOPE_N*2)%SCOPE_N;
     if(scopeTrig[si]){
-      const x=scx+(i/(SCOPE_N-1))*scw;
+      const x=scx+(i/(Math.max(1,visN-1)))*scw;
       ovX.strokeStyle=COL;ovX.lineWidth=0.7;
       ovX.beginPath();ovX.moveTo(x,scy);ovX.lineTo(x,scy+sch);ovX.stroke();
     }
   }
-  // LFO trace (dim)
+  // LFO trace dim
   ovX.strokeStyle='rgba(255,255,255,0.22)';ovX.lineWidth=1;
   ovX.beginPath();
-  for(let i=0;i<SCOPE_N;i++){
-    const si=(scopeHead+i)%SCOPE_N;
-    const x=scx+(i/(SCOPE_N-1))*scw;
+  for(let i=0;i<visN;i++){
+    const si=(scopeHead-1-i+SCOPE_N*2)%SCOPE_N;
+    const x=scx+(i/(Math.max(1,visN-1)))*scw;
     const y=scy+sch/2-scopeLFO[si]*sch/2*0.85;
     i===0?ovX.moveTo(x,y):ovX.lineTo(x,y);
   }
   ovX.stroke();
-  // S&H stepped output (bright)
+  // S&H stepped output bright
   ovX.strokeStyle=COL;ovX.lineWidth=1.5;
   ovX.beginPath();
-  for(let i=0;i<SCOPE_N;i++){
-    const si=(scopeHead+i)%SCOPE_N;
-    const x=scx+(i/(SCOPE_N-1))*scw;
+  let prevSH=null;
+  for(let i=0;i<visN;i++){
+    const si=(scopeHead-1-i+SCOPE_N*2)%SCOPE_N;
+    const x=scx+(i/(Math.max(1,visN-1)))*scw;
     const y=scy+sch/2-scopeSH[si]*sch/2*0.85;
-    i===0?ovX.moveTo(x,y):ovX.lineTo(x,y);
+    if(i===0){ovX.moveTo(x,y);}
+    else if(prevSH!==null&&Math.abs(scopeSH[si]-prevSH)>0.01){
+      // draw vertical step
+      ovX.lineTo(x,scy+sch/2-prevSH*sch/2*0.85);
+      ovX.lineTo(x,y);
+    } else {ovX.lineTo(x,y);}
+    prevSH=scopeSH[si];
   }
   ovX.stroke();
   ovX.restore();
   ovX.fillStyle=COL;
   ovX.font='8px monospace';ovX.textAlign='center';ovX.textBaseline='middle';
-  ovX.fillText('S&H',shC.x,shC.y+sbh/2-6);ovX.textBaseline='alphabetic';
+  ovX.fillText('S&H',sb.cx,sb.cy+sb.sbh/2-6);ovX.textBaseline='alphabetic';
 }
 
 // ── Overlay ───────────────────────────────────────────────────────────────────
@@ -959,6 +1017,13 @@ function drawOverlay(){
   drawHFader(bt,       activeModule==='clk' ? clkVisShape : shapeFader);
   drawHFader(bt+FADER_H, decayVal);
 
+  // Play/pause button in left dead zone of fader rows
+  const fL_=Math.round(W/12);
+  ovX.font='13px monospace';ovX.textAlign='center';ovX.textBaseline='middle';
+  ovX.fillStyle=paused?'rgba(255,255,255,0.7)':'rgba(255,255,255,0.28)';
+  ovX.fillText(paused?'▶':'⏸',fL_*0.5,bt+BOT_H*0.5);
+  ovX.textBaseline='alphabetic';
+
   // ── Bottom 3 module buttons ──
   const nbW=W/3, btnTop=bt+BOT_H, btnH=H-btnTop;
   for(let i=0;i<3;i++){
@@ -1055,6 +1120,10 @@ ovC.addEventListener('touchstart',e=>{
       applyMove(tgt,cx_,cy_);
       const sd=selectedDot();if(sd){vel[sd].vx=0;vel[sd].vy=0;}
     }
+    else if(tgt==='playPause'){ togglePause(); }
+    else if(tgt==='shScope'){
+      shScopeInteract={startY:cy_,startScale:shScopeScale,moved:false,startTime:Date.now(),id:t.identifier};
+    }
     else if(tgt==='botBtn'){
       const bIdx=Math.max(0,Math.min(2,Math.floor(cx_/(W/3))));
       selectModule(BOTTOM_MODS[bIdx].key);
@@ -1084,7 +1153,15 @@ ovC.addEventListener('touchmove',e=>{
     const tc=touches[t.identifier];if(!tc)continue;
     const cx_=ex(t.clientX), cy_=t.clientY;
     if(Math.hypot(cx_-tc.startX,cy_-tc.startY)>6)tc.moved=true;
-    if(tc.tgt==='pitchStrip')applyMove(tc.tgt,cx_,cy_);
+    if(shScopeInteract&&shScopeInteract.id===t.identifier){
+      const dy=cy_-shScopeInteract.startY;
+      if(Math.abs(dy)>6){
+        shScopeInteract.moved=true;
+        shScopeAutoScale=false;
+        shScopeScale=Math.max(0.125,Math.min(8,shScopeInteract.startScale*Math.pow(2,-dy/50)));
+      }
+    }
+    else if(tc.tgt==='pitchStrip')applyMove(tc.tgt,cx_,cy_);
     else if(HORIZ.includes(tc.tgt)){const ft=fineTune[t.identifier];applyMove(tc.tgt,ft?cx_-(cy_-ft.startY)*2:cx_,cy_);}
     else if(plotTouch&&plotTouch.id===t.identifier){
       const now=performance.now(),dt2=Math.max(1,now-(plotTouch.lastTime||now));
@@ -1102,6 +1179,10 @@ ovC.addEventListener('touchend',e=>{
       if(Date.now()-presetHoldStart<PRESET_HOLD_MS){
         handleModuleSelect(ex(t.clientX),t.clientY);
       }
+    }
+    if(shScopeInteract&&shScopeInteract.id===t.identifier){
+      if(!shScopeInteract.moved) shScopeAutoScale=!shScopeAutoScale;
+      shScopeInteract=null;
     }
     if(plotTouch&&plotTouch.id===t.identifier)plotTouch.active=false;
     delete touches[t.identifier];delete fineTune[t.identifier];
@@ -1168,10 +1249,18 @@ function hitTest(x,y){
     return null;
   }
   if(x>=W-PITCH_W&&y>=py_&&y<bt_) return 'pitchStrip';
+  const fL_=Math.round(W/12);
+  if(y>=bt_&&y<bt_+BOT_H&&x<fL_) return 'playPause';
   if(y>=bt_&&y<bt_+FADER_H) return 'fader0';
   if(y>=bt_+FADER_H&&y<bt_+FADER_H*2) return 'fader1';
   if(y>=bt_+BOT_H&&y<=H) return 'botBtn';
-  if(y>=py_&&y<bt_) return 'plot';
+  if(y>=py_&&y<bt_){
+    if(showHow){
+      const sb=shScopeBlock();
+      if(x>=sb.x&&x<sb.x+sb.w&&y>=sb.y&&y<sb.y+sb.h) return 'shScope';
+    }
+    return 'plot';
+  }
   return null;
 }
 
@@ -1211,6 +1300,10 @@ ovC.addEventListener('mousedown',e=>{
     }
   }
   else if(mTgt==='presetGrid'){ handlePresetGridTap(cx_,cy_); }
+  else if(mTgt==='playPause'){ togglePause(); }
+  else if(mTgt==='shScope'){
+    shScopeInteract={startY:cy_,startScale:shScopeScale,moved:false,startTime:Date.now(),id:'mouse'};
+  }
   else if(mTgt==='botBtn'){ selectModule(BOTTOM_MODS[Math.max(0,Math.min(2,Math.floor(cx_/(W/3))))].key); }
   else if(mTgt==='plot'){
     const allDots=[
@@ -1233,7 +1326,14 @@ ovC.addEventListener('mousedown',e=>{
 window.addEventListener('mousemove',e=>{
   if(!mTgt)return;
   const cx_=ex(e.clientX), cy_=e.clientY;
-  if(plotTouch&&plotTouch.id==='mouse'){
+  if(shScopeInteract&&shScopeInteract.id==='mouse'){
+    const dy=cy_-shScopeInteract.startY;
+    if(Math.abs(dy)>6){
+      shScopeInteract.moved=true;
+      shScopeAutoScale=false;
+      shScopeScale=Math.max(0.125,Math.min(8,shScopeInteract.startScale*Math.pow(2,-dy/50)));
+    }
+  } else if(plotTouch&&plotTouch.id==='mouse'){
     const now=performance.now(),dt2=Math.max(1,now-(plotTouch.lastTime||now));
     plotTouch.vx=(cx_-plotTouch.x)/(dt2/16);plotTouch.vy=(cy_-plotTouch.y)/(dt2/16);
     plotTouch.lastTime=now;plotTouch.x=cx_;plotTouch.y=cy_;
@@ -1250,6 +1350,10 @@ window.addEventListener('mouseup',e=>{
       const tm=TOP_MODS[Math.max(0,Math.min(3,Math.floor(ex(e.clientX)/(W/4))))];
       if(tm.key==='how'){showHow=!showHow;}else{selectModule(tm.key);}
     }
+  }
+  if(shScopeInteract&&shScopeInteract.id==='mouse'){
+    if(!shScopeInteract.moved) shScopeAutoScale=!shScopeAutoScale;
+    shScopeInteract=null;
   }
   if(plotTouch&&plotTouch.id==='mouse') plotTouch.active=false;
   mTgt=null;
