@@ -69,7 +69,7 @@ const TOP_MODS=[
   {key:'env',   label:'ENV'},
 ];
 
-const MODULE_DOT={lfo:'d0',clk:'d1',vco:'d3',env:'d4',how:'ds',time:'dt',scale:'dsc'};
+const MODULE_DOT={lfo:'d0',clk:'d1',vco:'d3',env:'d4',time:'dt',scale:'dsc'};
 let activeModule='lfo';
 
 function selectModule(key){
@@ -274,8 +274,9 @@ function euclidean(steps,pulses){
   build(level);return pattern;
 }
 
-function screenTrailHue(){ return dotShape(state.ds)*360; }
-function screenLineHue(){ return (1-((state.ds.sy-plotY())/plotH()))*360; }
+const SCREEN_HUE=61; // olive green (fixed: 17% of old 0–360 fader range)
+function screenTrailHue(){ return SCREEN_HUE; }
+function screenLineHue(){  return SCREEN_HUE; }
 function timeBalance(){ return dotShape(state.dt); }
 function timeVal(){ return Math.max(0,Math.min(1,(state.dt.sy-plotY())/plotH())); }
 function scaleX(){ return dotShape(state.dsc); }
@@ -691,6 +692,51 @@ function frame(ts){
   requestAnimationFrame(frame);
 }
 
+// ── HOW block diagram ─────────────────────────────────────────────────────────
+function drawHowDiagram(){
+  const px=plotX(),py=plotY(),pw=plotW(),dh=plotH()/3;
+  ovX.fillStyle='rgba(0,0,0,0.78)';
+  ovX.fillRect(px,py,pw,dh);
+
+  const bw=48,bh=18;
+  const lfoC={x:px+pw*0.13,y:py+dh*0.40};
+  const shC ={x:px+pw*0.50,y:py+dh*0.40};
+  const vcoC={x:px+pw*0.87,y:py+dh*0.40};
+  const clkC={x:px+pw*0.50,y:py+dh*0.80};
+
+  const lfoP=((state.ph0%(2*Math.PI))+2*Math.PI)%(2*Math.PI)/(2*Math.PI);
+  const clkP=((state.ph1%(2*Math.PI))+2*Math.PI)%(2*Math.PI)/(2*Math.PI);
+  const shOutP=(clkP+0.35)%1.0;
+  const clkGlow=state.euclGate?0.90:0.50;
+
+  function blk(c,label,br){
+    ovX.strokeStyle=`rgba(255,255,255,${br})`;ovX.lineWidth=1;
+    ovX.strokeRect(c.x-bw/2,c.y-bh/2,bw,bh);
+    ovX.fillStyle=`rgba(255,255,255,${br})`;
+    ovX.font='9px monospace';ovX.textAlign='center';ovX.textBaseline='middle';
+    ovX.fillText(label,c.x,c.y);
+    ovX.textBaseline='alphabetic';
+  }
+  function arw(x1,y1,x2,y2,t,r,g,b){
+    const dx=x2-x1,dy=y2-y1,len=Math.hypot(dx,dy);
+    const nx=dx/len,ny=dy/len;
+    ovX.strokeStyle=`rgba(${r},${g},${b},0.5)`;ovX.lineWidth=1;
+    ovX.beginPath();ovX.moveTo(x1,y1);ovX.lineTo(x2,y2);ovX.stroke();
+    const hx=x2-nx*6,hy=y2-ny*6;
+    ovX.beginPath();ovX.moveTo(x2,y2);ovX.lineTo(hx-ny*3,hy+nx*3);ovX.lineTo(hx+ny*3,hy-nx*3);
+    ovX.closePath();ovX.fillStyle=`rgba(${r},${g},${b},0.6)`;ovX.fill();
+    ovX.beginPath();ovX.arc(x1+dx*t,y1+dy*t,2.5,0,Math.PI*2);
+    ovX.fillStyle=`rgba(${r},${g},${b},0.95)`;ovX.fill();
+  }
+  arw(lfoC.x+bw/2, lfoC.y,      shC.x-bw/2,  shC.y,      lfoP,   220,230,100);
+  arw(clkC.x,      clkC.y-bh/2, shC.x,        shC.y+bh/2, clkP,   100,220,220);
+  arw(shC.x+bw/2,  shC.y,       vcoC.x-bw/2,  vcoC.y,     shOutP, 200,140,255);
+  blk(lfoC,'LFO',0.65);
+  blk(shC, 'S&H',clkGlow);
+  blk(vcoC,'VCO',0.65);
+  blk(clkC,'CLK',clkGlow);
+}
+
 // ── Overlay ───────────────────────────────────────────────────────────────────
 function drawOverlay(){
   ovX.clearRect(0,0,W,H);
@@ -786,40 +832,26 @@ function drawOverlay(){
     return; // skip the rest of the overlay when preset page is open
   }
 
+  if(activeModule==='how') drawHowDiagram();
+
   // ── Right pitch strip ──
   const psX=W-PITCH_W, psMid=psX+PITCH_W/2;
   const pitchDotY=py+(1-pitchFader)*ph;
   ovX.beginPath();ovX.arc(psMid,pitchDotY,6,0,Math.PI*2);
   ovX.fillStyle='rgba(255,255,255,0.85)';ovX.fill();
-  ovX.fillStyle='rgba(255,255,255,0.3)';ovX.font='7px monospace';ovX.textAlign='center';
-  ovX.fillText(Math.round(pitchFader*100),psMid,pitchDotY-8);
 
   // ── Bottom fader zone ──
-  function drawHFader(rowY,val,labelL,labelR){
+  function drawHFader(rowY,val){
     const fL=Math.round(W/12), fR=W-PITCH_W, fMid=rowY+FADER_H/2;
     ovX.strokeStyle='rgba(255,255,255,0.25)';ovX.lineWidth=1;
     ovX.beginPath();ovX.moveTo(fL,fMid);ovX.lineTo(fR,fMid);ovX.stroke();
-    ovX.fillStyle='rgba(255,255,255,0.2)';ovX.font='8px monospace';
-    ovX.textAlign='left'; ovX.fillText(labelL,fL,fMid-6);
-    ovX.textAlign='right';ovX.fillText(labelR,fR,fMid-6);
     const dotX=fL+val*(fR-fL);
     ovX.beginPath();ovX.arc(dotX,fMid,6,0,Math.PI*2);
     ovX.fillStyle='rgba(255,255,255,0.9)';ovX.fill();
-    ovX.fillStyle='rgba(255,255,255,0.5)';ovX.font='8px monospace';ovX.textAlign='center';
-    ovX.fillText(Math.round(val*100)+'%',dotX,fMid-10);
   }
 
-  if(activeModule==='clk'){
-    const CLK_SHAPE_NAMES=['SAW↓','TRI','SIN','TRI','SAW↑'];
-    const clkIdx=Math.min(4,Math.floor(clkVisShape*5));
-    drawHFader(bt, clkVisShape, 'SAW↓', CLK_SHAPE_NAMES[clkIdx]+'  SAW↑');
-  } else {
-    const LFO_SHAPE_NAMES=['SIN/2','SIN','TRI','SQR','SAW3','SAW↓'];
-    const lfoShapeIdx=Math.min(5,Math.floor(shapeFader*6));
-    const lfoShapeName=LFO_SHAPE_NAMES[lfoShapeIdx];
-    drawHFader(bt, shapeFader, 'SIN/2', lfoShapeName+'  SAW↓');
-  }
-  drawHFader(bt+FADER_H, decayVal,   'DRY', 'WET');
+  drawHFader(bt,       activeModule==='clk' ? clkVisShape : shapeFader);
+  drawHFader(bt+FADER_H, decayVal);
 
   // ── Bottom 3 module buttons ──
   const nbW=W/3, btnTop=bt+BOT_H, btnH=H-btnTop;
@@ -839,24 +871,14 @@ function drawOverlay(){
     ovX.beginPath();ovX.arc(d.sx,d.sy,6,0,Math.PI*2);
     ovX.fillStyle=isSel?'rgba(255,255,0,1.0)':'rgba(255,255,255,0.25)';
     ovX.fill();
-    if(isSel){
-      const xv=Math.round(dotShape(d)*100);
-      const yv=Math.round((1-(d.sy-py)/ph)*100);
-      ovX.fillStyle='rgba(255,255,0,0.7)';ovX.font='7px monospace';ovX.textAlign='left';
-      ovX.fillText(`${xv} ${yv}`,d.sx+9,d.sy+4);
-    }
   }
-  const topDots=[{k:'ds',m:'screen'},{k:'dt',m:'time'},{k:'dsc',m:'scale'},{k:'d4',m:'env'}];
+  const topDots=[{k:'dt',m:'time'},{k:'dsc',m:'scale'},{k:'d4',m:'env'}];
   for(const {k,m} of topDots){
     if(activeModule!==m)continue;
     const d=state[k];
     ovX.beginPath();ovX.arc(d.sx,d.sy,6,0,Math.PI*2);
     ovX.fillStyle='rgba(255,255,0,1.0)';
     ovX.fill();
-    const xv=Math.round(dotShape(d)*100);
-    const yv=Math.round((1-(d.sy-py)/ph)*100);
-    ovX.fillStyle='rgba(255,255,0,0.7)';ovX.font='7px monospace';ovX.textAlign='left';
-    ovX.fillText(`${xv} ${yv}`,d.sx+9,d.sy+4);
   }
 
   // ── Scale name + ENV label ──
@@ -933,7 +955,6 @@ ovC.addEventListener('touchstart',e=>{
     else if(tgt==='plot'){
       const allDots=[
         {k:'d0',m:'lfo'},{k:'d1',m:'clk'},{k:'d3',m:'vco'},
-        ...(activeModule==='how'?[{k:'ds',m:'how'}]:[]),
         ...(activeModule==='time'?[{k:'dt',m:'time'}]:[]),
         ...(activeModule==='scale'?[{k:'dsc',m:'scale'}]:[]),
         ...(activeModule==='env'?[{k:'d4',m:'env'}]:[]),
