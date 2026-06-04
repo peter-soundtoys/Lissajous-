@@ -1202,16 +1202,26 @@ ovC.addEventListener('touchstart',e=>{
         const dotX_=fL_+shapeFader*(fR_-fL_);
         const onFDot=Math.hypot(cx_-dotX_,cy_-(botY()+FADER_H/2))<14;
         const coasting_=throwFrictionOffX||throwFrictionOffY;
-        if(onFDot){if(sd)vel[sd].vx=0;throwFrictionOffX=false;}
-        else if(coasting_){throwFrictionOffX=false;} // coasting: halt X axis only, no pull
-        else{throwFrictionOffX=false;applyMove(tgt,cx_,cy_);if(sd)vel[sd].vx=0;}
+        if(onFDot){
+          if(sd)vel[sd].vx=0; throwFrictionOffX=false;
+        } else if(coasting_){
+          throwFrictionOffX=false; if(sd)vel[sd].vx=0;
+          // no applyMove on touchstart; touchmove will move if user slides
+        } else {
+          throwFrictionOffX=false; applyMove(tgt,cx_,cy_); if(sd)vel[sd].vx=0;
+        }
       } else if(tgt==='pitchStrip'){
         const pDotY_=plotY()+(1-pitchFader)*plotH();
         const onPDot=Math.hypot(cx_-(W-PITCH_W/2),cy_-pDotY_)<14;
         const coasting_=throwFrictionOffX||throwFrictionOffY;
-        if(onPDot){if(sd)vel[sd].vy=0;throwFrictionOffY=false;}
-        else if(coasting_){throwFrictionOffY=false;} // coasting: halt Y axis only, no pull
-        else{throwFrictionOffY=false;applyMove(tgt,cx_,cy_);if(sd)vel[sd].vy=0;}
+        if(onPDot){
+          if(sd)vel[sd].vy=0; throwFrictionOffY=false;
+        } else if(coasting_){
+          throwFrictionOffY=false; if(sd)vel[sd].vy=0;
+          // no applyMove on touchstart; touchmove will move if user slides
+        } else {
+          throwFrictionOffY=false; applyMove(tgt,cx_,cy_); if(sd)vel[sd].vy=0;
+        }
       } else {
         applyMove(tgt,cx_,cy_);
         if(sd){vel[sd].vx=0;vel[sd].vy=0;}
@@ -1333,10 +1343,12 @@ function updateGlide(){
     if(!throwFrictionOffX||k!==sd) v.vx*=0.998;
     if(!throwFrictionOffY||k!==sd) v.vy*=0.998;
     d.sx+=v.vx;d.sy+=v.vy;
-    if(d.sx<px3+mg){d.sx=px3+mg;v.vx=Math.abs(v.vx)*0.4;}
-    if(d.sx>px3+pw-mg){d.sx=px3+pw-mg;v.vx=-Math.abs(v.vx)*0.4;}
-    if(d.sy<py2+mg){d.sy=py2+mg;v.vy=Math.abs(v.vy)*0.4;}
-    if(d.sy>py2+ph-mg){d.sy=py2+ph-mg;v.vy=-Math.abs(v.vy)*0.4;}
+    const bncX=(k===sd&&throwFrictionOffX)?1.0:0.4;
+    const bncY=(k===sd&&throwFrictionOffY)?1.0:0.4;
+    if(d.sx<px3+mg){d.sx=px3+mg;v.vx=Math.abs(v.vx)*bncX;}
+    if(d.sx>px3+pw-mg){d.sx=px3+pw-mg;v.vx=-Math.abs(v.vx)*bncX;}
+    if(d.sy<py2+mg){d.sy=py2+mg;v.vy=Math.abs(v.vy)*bncY;}
+    if(d.sy>py2+ph-mg){d.sy=py2+ph-mg;v.vy=-Math.abs(v.vy)*bncY;}
     if(k===sd) syncFadersFromDot(sd);
   }
 
