@@ -37,6 +37,7 @@ const PITCH_W = 32;
 const FADER_H = 36;
 const BTN_H   = 28;
 const BOT_H   = FADER_H * 2;
+const BLOCK_HALF=18,DOT_COLLIDE_R=8,BLOCK_FRICTION=0.94,BLOCK_HOLD_MS=500;
 
 function plotW(){ return W - PITCH_W - Math.round(W/12); }
 function plotH(){ return Math.max(50, H - TOP_H - LED_H - BOT_H - BTN_H - 88); }
@@ -169,6 +170,7 @@ let coastDot=null; // dot key that was coasting when friction was removed
 let pendingFrictionOff=null; // {id,x,y,startX,startY,t}
 let xAttractTarget=null,yAttractTarget=null; // smooth fader-tap animation targets
 let showInfo=false;
+let blocks=[],blockTouch=null,blockHold=null;
 
 function selectedDot(){ return MODULE_DOT[activeModule]||null; }
 
@@ -1157,6 +1159,14 @@ function drawOverlay(){
   ovX.fillText('?', W-nbW*0.18, H-btnH*0.22);
   ovX.textBaseline='alphabetic';
 
+  // ── Blocks ──
+  for(const b of blocks){
+    ovX.fillStyle='rgba(255,255,255,0.06)';
+    ovX.fillRect(b.sx-BLOCK_HALF,b.sy-BLOCK_HALF,BLOCK_HALF*2,BLOCK_HALF*2);
+    ovX.strokeStyle='rgba(255,255,255,0.65)';ovX.lineWidth=1.5;
+    ovX.strokeRect(b.sx-BLOCK_HALF,b.sy-BLOCK_HALF,BLOCK_HALF*2,BLOCK_HALF*2);
+  }
+
   // ── OSC dots ──
   const frOff=(throwFrictionOffX||throwFrictionOffY)&&coastDot!==null;
   const frPulse=frOff?(Math.sin(performance.now()*0.004)+1)*0.5:0;
@@ -1222,6 +1232,32 @@ function drawOverlay(){
     const bx=bIdx*(W/4);
     ovX.fillStyle='rgba(255,255,255,0.15)';
     ovX.fillRect(bx+2,TOP_H-4,(W/4-4)*progress,3);
+  }
+}
+
+function hitBlock(x,y){
+  for(let i=blocks.length-1;i>=0;i--){
+    const b=blocks[i];
+    if(Math.abs(x-b.sx)<=BLOCK_HALF+6&&Math.abs(y-b.sy)<=BLOCK_HALF+6)return i;
+  }
+  return -1;
+}
+function pushOtherBlocks(dragIdx){
+  const px_=plotX(),py_=plotY(),pw_=plotW(),ph_=plotH();
+  for(let iter=0;iter<4;iter++){
+    const ba=blocks[dragIdx];
+    for(let i=0;i<blocks.length;i++){
+      if(i===dragIdx)continue;
+      const bb=blocks[i];
+      const ox=BLOCK_HALF*2-Math.abs(ba.sx-bb.sx);
+      const oy=BLOCK_HALF*2-Math.abs(ba.sy-bb.sy);
+      if(ox>0&&oy>0){
+        if(ox<=oy){const s=Math.sign(bb.sx-ba.sx)||1;bb.sx+=s*ox;}
+        else{const s=Math.sign(bb.sy-ba.sy)||1;bb.sy+=s*oy;}
+        bb.sx=Math.max(px_+BLOCK_HALF,Math.min(px_+pw_-BLOCK_HALF,bb.sx));
+        bb.sy=Math.max(py_+BLOCK_HALF,Math.min(py_+ph_-BLOCK_HALF,bb.sy));
+      }
+    }
   }
 }
 
@@ -1331,29 +1367,37 @@ ovC.addEventListener('touchstart',e=>{
       else{selectModule(BOTTOM_MODS[bIdx].key);}
     }
     else if(tgt==='plot'){
-      const allDots=[
-        {k:'d0',m:'lfo'},{k:'d1',m:'clk'},{k:'d3',m:'vco'},
-        ...(activeModule==='time'?[{k:'dt',m:'time'}]:[]),
-        ...(activeModule==='scale'?[{k:'dsc',m:'scale'}]:[]),
-        ...(activeModule==='env'?[{k:'d4',m:'env'}]:[]),
-      ];
-      for(const {k,m} of allDots){
-        if(m!==activeModule&&Math.hypot(cx_-state[k].sx,cy_-state[k].sy)<38){
-          selectModule(m);break;
-        }
-      }
-      const sd=selectedDot();
-      const onSelDot=sd&&Math.hypot(cx_-state[sd].sx,cy_-state[sd].sy)<38;
-      const inThrow=plotTouch&&plotTouch.coasting;
-      const coastEligible=['d0','d1','d3'].includes(sd);
-      xAttractTarget=null;yAttractTarget=null;
-      if(inThrow&&!onSelDot&&coastEligible){
-        throwFrictionOffX=true;throwFrictionOffY=true;
-        coastDot=sd;
-        pendingFrictionOff={id:t.identifier,x:cx_,y:cy_,startX:cx_,startY:cy_,t:Date.now()};
+      const bHit=hitBlock(cx_,cy_);
+      if(bHit>=0){
+        blockTouch={idx:bHit,id:t.identifier,startX:cx_,startY:cy_,x:cx_,y:cy_,
+                    startTime:Date.now(),vx:0,vy:0,lastTime:performance.now(),moved:false};
+        touches[t.identifier].tgt='block';
       } else {
-        if(inThrow){throwFrictionOffX=false;throwFrictionOffY=false;coastDot=null;}
-        plotTouch={x:cx_,y:cy_,id:t.identifier,active:true,direct:!!onSelDot,vx:0,vy:0,lastTime:performance.now(),coasting:false};
+        blockHold={id:t.identifier,x:cx_,y:cy_,t:Date.now()};
+        const allDots=[
+          {k:'d0',m:'lfo'},{k:'d1',m:'clk'},{k:'d3',m:'vco'},
+          ...(activeModule==='time'?[{k:'dt',m:'time'}]:[]),
+          ...(activeModule==='scale'?[{k:'dsc',m:'scale'}]:[]),
+          ...(activeModule==='env'?[{k:'d4',m:'env'}]:[]),
+        ];
+        for(const {k,m} of allDots){
+          if(m!==activeModule&&Math.hypot(cx_-state[k].sx,cy_-state[k].sy)<38){
+            selectModule(m);break;
+          }
+        }
+        const sd=selectedDot();
+        const onSelDot=sd&&Math.hypot(cx_-state[sd].sx,cy_-state[sd].sy)<38;
+        const inThrow=plotTouch&&plotTouch.coasting;
+        const coastEligible=['d0','d1','d3'].includes(sd);
+        xAttractTarget=null;yAttractTarget=null;
+        if(inThrow&&!onSelDot&&coastEligible){
+          throwFrictionOffX=true;throwFrictionOffY=true;
+          coastDot=sd;
+          pendingFrictionOff={id:t.identifier,x:cx_,y:cy_,startX:cx_,startY:cy_,t:Date.now()};
+        } else {
+          if(inThrow){throwFrictionOffX=false;throwFrictionOffY=false;coastDot=null;}
+          plotTouch={x:cx_,y:cy_,id:t.identifier,active:true,direct:!!onSelDot,vx:0,vy:0,lastTime:performance.now(),coasting:false};
+        }
       }
     }
   }
@@ -1365,12 +1409,26 @@ ovC.addEventListener('touchmove',e=>{
     const tc=touches[t.identifier];if(!tc)continue;
     const cx_=ex(t.clientX), cy_=t.clientY;
     if(Math.hypot(cx_-tc.startX,cy_-tc.startY)>6)tc.moved=true;
+    if(blockHold&&blockHold.id===t.identifier&&Math.hypot(cx_-blockHold.x,cy_-blockHold.y)>8)blockHold=null;
     if(shScopeInteract&&shScopeInteract.id===t.identifier){
       const dy=cy_-shScopeInteract.startY;
       if(Math.abs(dy)>6){
         shScopeInteract.moved=true;
         shScopeAutoScale=false;
         shScopeScale=Math.max(0.125,Math.min(8,shScopeInteract.startScale*Math.pow(2,-dy/50)));
+      }
+    }
+    else if(tc.tgt==='block'&&blockTouch&&blockTouch.id===t.identifier){
+      const now=performance.now(),dt2=Math.max(1,now-blockTouch.lastTime);
+      blockTouch.vx=(cx_-blockTouch.x)/dt2*16;blockTouch.vy=(cy_-blockTouch.y)/dt2*16;
+      blockTouch.lastTime=now;blockTouch.x=cx_;blockTouch.y=cy_;
+      if(Math.hypot(cx_-blockTouch.startX,cy_-blockTouch.startY)>6)blockTouch.moved=true;
+      const b=blocks[blockTouch.idx];
+      if(b){
+        const px_=plotX(),py_=plotY(),pw_=plotW(),ph_=plotH();
+        b.sx=Math.max(px_+BLOCK_HALF,Math.min(px_+pw_-BLOCK_HALF,cx_));
+        b.sy=Math.max(py_+BLOCK_HALF,Math.min(py_+ph_-BLOCK_HALF,cy_));
+        pushOtherBlocks(blockTouch.idx);
       }
     }
     else if(tc.tgt==='pitchStrip'){yAttractTarget=null;applyMove(tc.tgt,cx_,cy_);}
@@ -1395,6 +1453,18 @@ ovC.addEventListener('touchmove',e=>{
 
 ovC.addEventListener('touchend',e=>{
   for(const t of e.changedTouches){
+    if(blockHold&&blockHold.id===t.identifier)blockHold=null;
+    if(blockTouch&&blockTouch.id===t.identifier){
+      if(!blockTouch.moved&&Date.now()-blockTouch.startTime<TAP_MS){
+        blocks.splice(blockTouch.idx,1);
+      } else if(blocks[blockTouch.idx]){
+        blocks[blockTouch.idx].vx=blockTouch.vx;
+        blocks[blockTouch.idx].vy=blockTouch.vy;
+      }
+      blockTouch=null;
+      delete touches[t.identifier];
+      continue;
+    }
     if(pendingFrictionOff&&pendingFrictionOff.id===t.identifier){
       // Genuine tap: flags already set at touchstart → coasting is on, keep them
       pendingFrictionOff=null;
@@ -1448,6 +1518,58 @@ function updateGlide(){
     if(d.sy>py2+ph-mg){d.sy=py2+ph-mg;v.vy=-Math.abs(v.vy)*bncY;}
     if(k===sd) syncFadersFromDot(sd);
   }
+
+  // ── Block physics ──
+  if(blockHold&&Date.now()-blockHold.t>=BLOCK_HOLD_MS){
+    const bx=Math.max(px3+BLOCK_HALF,Math.min(px3+pw-BLOCK_HALF,blockHold.x));
+    const by=Math.max(py2+BLOCK_HALF,Math.min(py2+ph-BLOCK_HALF,blockHold.y));
+    blocks.push({sx:bx,sy:by,vx:0,vy:0});
+    blockHold=null;
+  }
+  if(blocks.length>0){
+    const bDrag=blockTouch?blockTouch.idx:-1;
+    for(let i=0;i<blocks.length;i++){
+      if(i===bDrag)continue;
+      const b=blocks[i];
+      b.vx*=BLOCK_FRICTION;b.vy*=BLOCK_FRICTION;
+      b.sx+=b.vx;b.sy+=b.vy;
+      if(b.sx<px3+BLOCK_HALF){b.sx=px3+BLOCK_HALF;b.vx=Math.abs(b.vx)*0.5;}
+      if(b.sx>px3+pw-BLOCK_HALF){b.sx=px3+pw-BLOCK_HALF;b.vx=-Math.abs(b.vx)*0.5;}
+      if(b.sy<py2+BLOCK_HALF){b.sy=py2+BLOCK_HALF;b.vy=Math.abs(b.vy)*0.5;}
+      if(b.sy>py2+ph-BLOCK_HALF){b.sy=py2+ph-BLOCK_HALF;b.vy=-Math.abs(b.vy)*0.5;}
+    }
+    for(let i=0;i<blocks.length-1;i++){
+      for(let j=i+1;j<blocks.length;j++){
+        const bi=blocks[i],bj=blocks[j];
+        const ox=BLOCK_HALF*2-Math.abs(bi.sx-bj.sx);
+        const oy=BLOCK_HALF*2-Math.abs(bi.sy-bj.sy);
+        if(ox>0&&oy>0){
+          if(ox<=oy){const s=Math.sign(bi.sx-bj.sx)||1;bi.sx+=s*ox/2;bj.sx-=s*ox/2;const tv=bi.vx;bi.vx=bj.vx*0.7;bj.vx=tv*0.7;}
+          else{const s=Math.sign(bi.sy-bj.sy)||1;bi.sy+=s*oy/2;bj.sy-=s*oy/2;const tv=bi.vy;bi.vy=bj.vy*0.7;bj.vy=tv*0.7;}
+        }
+      }
+    }
+    for(const k of allDotKeys){
+      const d=state[k],v=vel[k];
+      for(const b of blocks){
+        const cX=Math.max(b.sx-BLOCK_HALF,Math.min(b.sx+BLOCK_HALF,d.sx));
+        const cY=Math.max(b.sy-BLOCK_HALF,Math.min(b.sy+BLOCK_HALF,d.sy));
+        const dx=d.sx-cX,dy=d.sy-cY;
+        const dist2=dx*dx+dy*dy;
+        if(dist2<DOT_COLLIDE_R*DOT_COLLIDE_R){
+          const dist=dist2>0.0001?Math.sqrt(dist2):0.01;
+          const nx=dx/dist,ny=dy/dist;
+          d.sx=cX+nx*DOT_COLLIDE_R;d.sy=cY+ny*DOT_COLLIDE_R;
+          const dp=v.vx*nx+v.vy*ny;
+          if(dp<0){
+            const bncF=(k===coastDot&&(throwFrictionOffX||throwFrictionOffY))?1.0:0.7;
+            v.vx=(v.vx-2*dp*nx)*bncF;v.vy=(v.vy-2*dp*ny)*bncF;
+          }
+        }
+      }
+    }
+  }
+
   // Smooth fader-tap attract
   if(sd&&xAttractTarget!==null){
     const dx=xAttractTarget-state[sd].sx;
