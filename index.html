@@ -189,7 +189,7 @@ function saveToStorage(){
 // Dot positions as normalized fractions: nx ∈ [0,1] across plot width,
 // ny ∈ [0,1] with 1=top and 0=bottom (same convention as initDots).
 // Set to null to fall through to initDots() defaults for new users.
-const FACTORY_PRESET = null;
+const FACTORY_PRESET = {"d0":{"nx":1,"ny":1},"d1":{"nx":0.5,"ny":0.5},"d3":{"nx":0.2,"ny":0.5999999999999999},"d4":{"nx":1,"ny":0.75},"ds":{"nx":0.17,"ny":0},"dt":{"nx":0.95,"ny":0.8},"dsc":{"nx":0,"ny":0.7142857142857144},"shapeFader":0,"pitchFader":0.7142857142857144,"decayVal":0,"xfadeVal":0,"auxFader":0.5,"clkVisShape":0.30939226519337015,"activeModule":"scale","scaleAug":0,"scaleIdxF":1.9999999999999996};
 
 function applyFactoryPreset(){
   if(!FACTORY_PRESET) return;
