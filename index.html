@@ -193,7 +193,18 @@ const PRESET_HOLD_MS=800;
 
 function toggleMute(){
   muted=!muted;
-  if(gainNode)gainNode.gain.setTargetAtTime(muted?0:0.4,audioCtx.currentTime,0.02);
+  if(audioCtx){
+    const ct=audioCtx.currentTime;
+    if(muted){
+      gainNode.gain.setTargetAtTime(0,ct,0.02);
+      dlyFdbk.gain.setTargetAtTime(0,ct,0.05);
+      verbFbkGain.gain.setTargetAtTime(0,ct,0.05);
+      inputGainDly.gain.setTargetAtTime(0,ct,0.05);
+      inputGainRvb.gain.setTargetAtTime(0,ct,0.05);
+    } else {
+      startAudio();
+    }
+  }
 }
 
 function openPresets(){ presetOpen=true; presetAction='load'; presetConfirmSlot=-1; }
@@ -587,10 +598,21 @@ function initAudio(){
   masterHPF.connect(audioCtx.destination);
   o3Node.frequency.value=440;o3Node.start();
 }
-function startAudio(){if(!audioCtx)initAudio();if(audioCtx.state!=='running')audioCtx.resume();}
-function unlockAudio(){if(!audioCtx)initAudio();if(audioCtx.state!=='running')audioCtx.resume();}
+function startAudio(){
+  if(audioCtx&&audioCtx.state==='closed'){
+    audioCtx=null;
+    o3Node=gainNode=vcaGain=inputGainDly=inputGainRvb=dryGain=wetGain=null;
+    dlyNode=dlyFdbk=dlyTone=foldNode=null;
+    verbNodes=[];verbGain=verbInput=wetLimiter=verbFbkGain=verbFbkDelay=null;
+    lastAudioShape=-1;
+  }
+  if(!audioCtx)initAudio();
+  if(audioCtx.state!=='running')audioCtx.resume().catch(()=>{});
+}
+function unlockAudio(){startAudio();}
 ['touchend','touchstart','mousedown'].forEach(ev=>document.body.addEventListener(ev,unlockAudio,false));
-setInterval(()=>{if(audioCtx&&audioCtx.state!=='running')audioCtx.resume();},2000);
+setInterval(()=>{if(audioCtx&&audioCtx.state!=='running')audioCtx.resume().catch(()=>{});},2000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)startAudio();});
 
 function updateAudio(){
   if(!audioCtx)return;
@@ -635,15 +657,15 @@ function updateAudio(){
   const dlyFbkRaw=Math.max(0, 0.15+lengthT*0.60+fbkXOff);
   const dlyFbkScaled=Math.min(0.92, dlyFbkRaw*(1-dlyTimeNorm*0.55));
 
-  inputGainDly.gain.setTargetAtTime(wetSend*masterBoost*1.4,ct,0.12);
-  dlyFdbk.gain.setTargetAtTime(dlyFbkScaled,ct,0.2);
+  inputGainDly.gain.setTargetAtTime(muted?0:wetSend*masterBoost*1.4,ct,0.12);
+  dlyFdbk.gain.setTargetAtTime(muted?0:dlyFbkScaled,ct,0.2);
   dlyNode.delayTime.setTargetAtTime(dlyTimeSec,ct,0.35);
   dlyTone.frequency.setTargetAtTime(effectiveTone,ct,0.15);
 
-  inputGainRvb.gain.setTargetAtTime(wetSend*masterBoost*2.4,ct,0.12);
-  verbNodes.forEach(({g},i)=>g.gain.setTargetAtTime(rvbFbk*Math.pow(0.80,i),ct,0.12));
-  verbGain.gain.setTargetAtTime(0.5,ct,0.12);
-  verbFbkGain.gain.setTargetAtTime(rvbFbk/2.08,ct,0.12);
+  inputGainRvb.gain.setTargetAtTime(muted?0:wetSend*masterBoost*2.4,ct,0.12);
+  verbNodes.forEach(({g},i)=>g.gain.setTargetAtTime(muted?0:rvbFbk*Math.pow(0.80,i),ct,0.12));
+  verbGain.gain.setTargetAtTime(muted?0:0.5,ct,0.12);
+  verbFbkGain.gain.setTargetAtTime(muted?0:rvbFbk/2.08,ct,0.12);
   verbNodes.forEach(({lpf})=>lpf.frequency.setTargetAtTime(effectiveTone,ct,0.15));
 
   dryGain.gain.setTargetAtTime(dry,ct,0.12);
