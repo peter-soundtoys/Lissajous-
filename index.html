@@ -170,7 +170,7 @@ let coastDot=null; // dot key that was coasting when friction was removed
 let pendingFrictionOff=null; // {id,x,y,startX,startY,t}
 let xAttractTarget=null,yAttractTarget=null; // smooth fader-tap animation targets
 let showInfo=false;
-let blocks=[],blockTouch=null,blockHold=null;
+let blocks=[],blockMode=null,blockModeId=null,lastBlockPos=null,blockHold=null;
 
 function selectedDot(){ return MODULE_DOT[activeModule]||null; }
 
@@ -1242,24 +1242,6 @@ function hitBlock(x,y){
   }
   return -1;
 }
-function pushOtherBlocks(dragIdx){
-  const px_=plotX(),py_=plotY(),pw_=plotW(),ph_=plotH();
-  for(let iter=0;iter<4;iter++){
-    const ba=blocks[dragIdx];
-    for(let i=0;i<blocks.length;i++){
-      if(i===dragIdx)continue;
-      const bb=blocks[i];
-      const ox=BLOCK_HALF*2-Math.abs(ba.sx-bb.sx);
-      const oy=BLOCK_HALF*2-Math.abs(ba.sy-bb.sy);
-      if(ox>0&&oy>0){
-        if(ox<=oy){const s=Math.sign(bb.sx-ba.sx)||1;bb.sx+=s*ox;}
-        else{const s=Math.sign(bb.sy-ba.sy)||1;bb.sy+=s*oy;}
-        bb.sx=Math.max(px_+BLOCK_HALF,Math.min(px_+pw_-BLOCK_HALF,bb.sx));
-        bb.sy=Math.max(py_+BLOCK_HALF,Math.min(py_+ph_-BLOCK_HALF,bb.sy));
-      }
-    }
-  }
-}
 
 // ── Gesture system ────────────────────────────────────────────────────────────
 const TAP_MS=300,THROW_SCALE=1.0,COAST_FRICTION=0.99;
@@ -1368,12 +1350,8 @@ ovC.addEventListener('touchstart',e=>{
     }
     else if(tgt==='plot'){
       const bHit=hitBlock(cx_,cy_);
-      if(bHit>=0){
-        blockTouch={idx:bHit,id:t.identifier,startX:cx_,startY:cy_,x:cx_,y:cy_,
-                    startTime:Date.now(),vx:0,vy:0,lastTime:performance.now(),moved:false};
-        touches[t.identifier].tgt='block';
-      } else {
-        blockHold={id:t.identifier,x:cx_,y:cy_,t:Date.now()};
+      blockHold={id:t.identifier,x:cx_,y:cy_,t:Date.now(),onBlock:bHit>=0};
+      if(bHit<0){
         const allDots=[
           {k:'d0',m:'lfo'},{k:'d1',m:'clk'},{k:'d3',m:'vco'},
           ...(activeModule==='time'?[{k:'dt',m:'time'}]:[]),
@@ -1410,25 +1388,24 @@ ovC.addEventListener('touchmove',e=>{
     const cx_=ex(t.clientX), cy_=t.clientY;
     if(Math.hypot(cx_-tc.startX,cy_-tc.startY)>6)tc.moved=true;
     if(blockHold&&blockHold.id===t.identifier&&Math.hypot(cx_-blockHold.x,cy_-blockHold.y)>8)blockHold=null;
-    if(shScopeInteract&&shScopeInteract.id===t.identifier){
+    if(blockMode&&blockModeId===t.identifier){
+      if(blockMode==='draw'){
+        const px_=plotX(),py_=plotY(),pw_=plotW(),ph_=plotH();
+        const bx=Math.max(px_+BLOCK_HALF,Math.min(px_+pw_-BLOCK_HALF,cx_));
+        const by=Math.max(py_+BLOCK_HALF,Math.min(py_+ph_-BLOCK_HALF,cy_));
+        if(!lastBlockPos||Math.hypot(cx_-lastBlockPos.sx,cy_-lastBlockPos.sy)>=BLOCK_HALF*1.8){
+          if(hitBlock(bx,by)<0){blocks.push({sx:bx,sy:by,vx:0,vy:0});lastBlockPos={sx:bx,sy:by};}
+        }
+      }else{
+        let bHit2;while((bHit2=hitBlock(cx_,cy_))>=0)blocks.splice(bHit2,1);
+      }
+    }
+    else if(shScopeInteract&&shScopeInteract.id===t.identifier){
       const dy=cy_-shScopeInteract.startY;
       if(Math.abs(dy)>6){
         shScopeInteract.moved=true;
         shScopeAutoScale=false;
         shScopeScale=Math.max(0.125,Math.min(8,shScopeInteract.startScale*Math.pow(2,-dy/50)));
-      }
-    }
-    else if(tc.tgt==='block'&&blockTouch&&blockTouch.id===t.identifier){
-      const now=performance.now(),dt2=Math.max(1,now-blockTouch.lastTime);
-      blockTouch.vx=(cx_-blockTouch.x)/dt2*16;blockTouch.vy=(cy_-blockTouch.y)/dt2*16;
-      blockTouch.lastTime=now;blockTouch.x=cx_;blockTouch.y=cy_;
-      if(Math.hypot(cx_-blockTouch.startX,cy_-blockTouch.startY)>6)blockTouch.moved=true;
-      const b=blocks[blockTouch.idx];
-      if(b){
-        const px_=plotX(),py_=plotY(),pw_=plotW(),ph_=plotH();
-        b.sx=Math.max(px_+BLOCK_HALF,Math.min(px_+pw_-BLOCK_HALF,cx_));
-        b.sy=Math.max(py_+BLOCK_HALF,Math.min(py_+ph_-BLOCK_HALF,cy_));
-        pushOtherBlocks(blockTouch.idx);
       }
     }
     else if(tc.tgt==='pitchStrip'){yAttractTarget=null;applyMove(tc.tgt,cx_,cy_);}
@@ -1454,17 +1431,7 @@ ovC.addEventListener('touchmove',e=>{
 ovC.addEventListener('touchend',e=>{
   for(const t of e.changedTouches){
     if(blockHold&&blockHold.id===t.identifier)blockHold=null;
-    if(blockTouch&&blockTouch.id===t.identifier){
-      if(!blockTouch.moved&&Date.now()-blockTouch.startTime<TAP_MS){
-        blocks.splice(blockTouch.idx,1);
-      } else if(blocks[blockTouch.idx]){
-        blocks[blockTouch.idx].vx=blockTouch.vx;
-        blocks[blockTouch.idx].vy=blockTouch.vy;
-      }
-      blockTouch=null;
-      delete touches[t.identifier];
-      continue;
-    }
+    if(blockModeId===t.identifier){blockMode=null;blockModeId=null;lastBlockPos=null;}
     if(pendingFrictionOff&&pendingFrictionOff.id===t.identifier){
       // Genuine tap: flags already set at touchstart → coasting is on, keep them
       pendingFrictionOff=null;
@@ -1521,15 +1488,22 @@ function updateGlide(){
 
   // ── Block physics ──
   if(blockHold&&Date.now()-blockHold.t>=BLOCK_HOLD_MS){
-    const bx=Math.max(px3+BLOCK_HALF,Math.min(px3+pw-BLOCK_HALF,blockHold.x));
-    const by=Math.max(py2+BLOCK_HALF,Math.min(py2+ph-BLOCK_HALF,blockHold.y));
-    blocks.push({sx:bx,sy:by,vx:0,vy:0});
+    if(blockHold.onBlock){
+      const bHit=hitBlock(blockHold.x,blockHold.y);
+      if(bHit>=0)blocks.splice(bHit,1);
+      blockMode='erase';
+    }else{
+      const bx=Math.max(px3+BLOCK_HALF,Math.min(px3+pw-BLOCK_HALF,blockHold.x));
+      const by=Math.max(py2+BLOCK_HALF,Math.min(py2+ph-BLOCK_HALF,blockHold.y));
+      if(hitBlock(bx,by)<0){blocks.push({sx:bx,sy:by,vx:0,vy:0});lastBlockPos={sx:bx,sy:by};}
+      blockMode='draw';
+    }
+    blockModeId=blockHold.id;
+    if(plotTouch&&plotTouch.id===blockModeId)plotTouch=null;
     blockHold=null;
   }
   if(blocks.length>0){
-    const bDrag=blockTouch?blockTouch.idx:-1;
     for(let i=0;i<blocks.length;i++){
-      if(i===bDrag)continue;
       const b=blocks[i];
       b.vx*=BLOCK_FRICTION;b.vy*=BLOCK_FRICTION;
       b.sx+=b.vx;b.sy+=b.vy;
