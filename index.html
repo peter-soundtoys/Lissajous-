@@ -191,14 +191,14 @@ function saveToStorage(){
 // ny ∈ [0,1] with 1=top and 0=bottom (same convention as initDots).
 // Set to null to fall through to initDots() defaults for new users.
 const FACTORY_PRESET = {
-  d0: {nx:0,    ny:0.1},  // LFO
-  d1: {nx:0.5,  ny:0.2},  // CLK
+  d0: {nx:1,    ny:0.1},  // LFO
+  d1: {nx:0.5,  ny:0.5},  // CLK
   d3: {nx:0.2,  ny:0.5},  // VCO
   d4: {nx:0,    ny:0.5},  // ENV
   ds: {nx:0.17, ny:0.0},  // S&H (default)
   dt: {nx:0.95, ny:0.8},  // TIME (default)
   dsc:{nx:0,    ny:0.7},  // SCALE
-  shapeFader:0, pitchFader:0.1, decayVal:0, xfadeVal:0, auxFader:0.5,
+  shapeFader:1, pitchFader:0.1, decayVal:0, xfadeVal:0, auxFader:0.5,
   clkVisShape:0.5, activeModule:'lfo', scaleAug:0, scaleIdxF:0,
 };
 
@@ -1149,11 +1149,8 @@ function drawOverlay(){
     ovX.fillText(m.label,bx+nbW/2,btnTop+btnH*0.55);
     if(i>0){ovX.strokeStyle='rgba(255,255,255,0.07)';ovX.lineWidth=1;ovX.beginPath();ovX.moveTo(bx,btnTop);ovX.lineTo(bx,H);ovX.stroke();}
   }
-  // ── Small play/pause overlay on LFO button (bottom-left) ──
-  ovX.font='14px monospace';ovX.textAlign='center';ovX.textBaseline='middle';
-  ovX.fillStyle=muted?'rgba(255,255,255,0.85)':'rgba(255,255,255,0.30)';
-  ovX.fillText('M', nbW*0.18, H-btnH*0.22);
   // ── Small ? overlay on VCO button (bottom-right) ──
+  ovX.font='14px monospace';ovX.textAlign='center';ovX.textBaseline='middle';
   ovX.fillStyle=showInfo?'rgba(255,255,0,0.9)':'rgba(255,255,255,0.30)';
   ovX.fillText('?', W-nbW*0.18, H-btnH*0.22);
   ovX.textBaseline='alphabetic';
@@ -1433,7 +1430,6 @@ ovC.addEventListener('touchstart',e=>{
         applyMove(tgt,cx_,cy_);
       }
     }
-    else if(tgt==='playPause'){ toggleMute(); }
     else if(tgt==='shScope'){
       shScopeInteract={startY:cy_,startScale:shScopeScale,moved:false,startTime:Date.now(),id:t.identifier};
     }
@@ -1706,7 +1702,6 @@ function hitTest(x,y){
   }
   if(x>=W-PITCH_W&&y>=py_&&y<bt_) return 'pitchStrip';
   const fL_=Math.round(W/12);
-  if(y>=bt_&&y<bt_+BOT_H&&x<fL_) return 'playPause';
   if(y>=bt_&&y<bt_+FADER_H) return 'fader0';
   if(y>=bt_+FADER_H&&y<bt_+FADER_H*2) return 'fader1';
   if(y>=bt_+BOT_H&&y<=H) return 'botBtn';
@@ -1781,7 +1776,6 @@ ovC.addEventListener('mousedown',e=>{
     }
   }
   else if(mTgt==='presetGrid'){ handlePresetGridTap(cx_,cy_); }
-  else if(mTgt==='playPause'){ toggleMute(); }
   else if(mTgt==='shScope'){
     shScopeInteract={startY:cy_,startScale:shScopeScale,moved:false,startTime:Date.now(),id:'mouse'};
   }
