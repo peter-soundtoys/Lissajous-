@@ -1320,33 +1320,27 @@ ovC.addEventListener('touchstart',e=>{
         const fL_=Math.round(W/12),fR_=W-PITCH_W;
         const dotX_=fL_+shapeFader*(fR_-fL_);
         const onFDot=Math.hypot(cx_-dotX_,cy_-(botY()+FADER_H/2))<14;
-        const coasting_=throwFrictionOffX||throwFrictionOffY;
+        const myCoastX=throwFrictionOffX&&coastDot===sd;
         xAttractTarget=null;
         if(onFDot){
-          if(sd)vel[sd].vx=0; throwFrictionOffX=false;
-          if(!throwFrictionOffX&&!throwFrictionOffY)coastDot=null;
-        } else if(coasting_){
-          throwFrictionOffX=false; if(sd)vel[sd].vx=0;
-          if(!throwFrictionOffX&&!throwFrictionOffY)coastDot=null;
+          if(sd)vel[sd].vx=0;
+          if(myCoastX){throwFrictionOffX=false;if(!throwFrictionOffY)coastDot=null;}
+        } else if(myCoastX){
+          throwFrictionOffX=false;if(sd)vel[sd].vx=0;if(!throwFrictionOffY)coastDot=null;
         } else {
-          // smooth lerp to tapped position — no snap
-          throwFrictionOffX=false;
           if(sd){ xAttractTarget=plotX()+Math.max(0,Math.min(1,(cx_-fL_)/(fR_-fL_)))*plotW(); vel[sd].vx=0; }
         }
       } else if(tgt==='pitchStrip'){
         const pDotY_=plotY()+(1-pitchFader)*plotH();
         const onPDot=Math.hypot(cx_-(W-PITCH_W/2),cy_-pDotY_)<14;
-        const coasting_=throwFrictionOffX||throwFrictionOffY;
+        const myCoastY=throwFrictionOffY&&coastDot===sd;
         yAttractTarget=null;
         if(onPDot){
-          if(sd)vel[sd].vy=0; throwFrictionOffY=false;
-          if(!throwFrictionOffX&&!throwFrictionOffY)coastDot=null;
-        } else if(coasting_){
-          throwFrictionOffY=false; if(sd)vel[sd].vy=0;
-          if(!throwFrictionOffX&&!throwFrictionOffY)coastDot=null;
+          if(sd)vel[sd].vy=0;
+          if(myCoastY){throwFrictionOffY=false;if(!throwFrictionOffX)coastDot=null;}
+        } else if(myCoastY){
+          throwFrictionOffY=false;if(sd)vel[sd].vy=0;if(!throwFrictionOffX)coastDot=null;
         } else {
-          // smooth lerp to tapped position — no snap
-          throwFrictionOffY=false;
           if(sd){ yAttractTarget=plotY()+(1-Math.max(0,Math.min(1,(cy_-plotY())/plotH())))*plotH(); vel[sd].vy=0; }
         }
       } else {
@@ -1390,12 +1384,13 @@ ovC.addEventListener('touchstart',e=>{
         const inThrow=plotTouch&&plotTouch.coasting;
         const coastEligible=['d0','d1','d3'].includes(sd);
         xAttractTarget=null;yAttractTarget=null;
-        if(inThrow&&!onSelDot&&coastEligible){
+        const ownCoast=!coastDot||coastDot===sd;
+        if(inThrow&&!onSelDot&&coastEligible&&ownCoast){
           throwFrictionOffX=true;throwFrictionOffY=true;
           coastDot=sd;
           pendingFrictionOff={id:t.identifier,x:cx_,y:cy_,startX:cx_,startY:cy_,t:Date.now()};
         } else {
-          if(inThrow){throwFrictionOffX=false;throwFrictionOffY=false;coastDot=null;}
+          if(inThrow&&ownCoast){throwFrictionOffX=false;throwFrictionOffY=false;coastDot=null;}
           plotTouch={x:cx_,y:cy_,id:t.identifier,active:true,direct:!!onSelDot,vx:0,vy:0,lastTime:performance.now(),coasting:false};
         }
       }
@@ -1724,15 +1719,17 @@ ovC.addEventListener('mousedown',e=>{
     const dotX_=fL_+shapeFader*(fR_-fL_);
     const onFDot=Math.hypot(cx_-dotX_,cy_-(botY()+FADER_H/2))<14;
     const sd_=selectedDot();
-    if(onFDot){if(sd_)vel[sd_].vx=0;throwFrictionOffX=false;}
-    else{throwFrictionOffX=false;applyMove('fader0',cx_,cy_);if(sd_)vel[sd_].vx=0;}
+    if(onFDot){if(sd_)vel[sd_].vx=0;if(coastDot===sd_){throwFrictionOffX=false;if(!throwFrictionOffY)coastDot=null;}}
+    else if(throwFrictionOffX&&coastDot===sd_){throwFrictionOffX=false;if(sd_)vel[sd_].vx=0;if(!throwFrictionOffY)coastDot=null;}
+    else{applyMove('fader0',cx_,cy_);if(sd_)vel[sd_].vx=0;}
   }
   else if(mTgt==='pitchStrip'){
     const pDotY_=plotY()+(1-pitchFader)*plotH();
     const onPDot=Math.hypot(cx_-(W-PITCH_W/2),cy_-pDotY_)<14;
     const sd_=selectedDot();
-    if(onPDot){if(sd_)vel[sd_].vy=0;throwFrictionOffY=false;}
-    else{throwFrictionOffY=false;applyMove('pitchStrip',cx_,cy_);if(sd_)vel[sd_].vy=0;}
+    if(onPDot){if(sd_)vel[sd_].vy=0;if(coastDot===sd_){throwFrictionOffY=false;if(!throwFrictionOffX)coastDot=null;}}
+    else if(throwFrictionOffY&&coastDot===sd_){throwFrictionOffY=false;if(sd_)vel[sd_].vy=0;if(!throwFrictionOffX)coastDot=null;}
+    else{applyMove('pitchStrip',cx_,cy_);if(sd_)vel[sd_].vy=0;}
   }
   else if(mTgt){ applyMove(mTgt,cx_,cy_); }
 });
