@@ -1214,7 +1214,7 @@ function drawOverlay(){
       'SCALE tunes to musical scales',
       
       '',
-      'tap anywhere to close',
+      'tap or click anywhere to close',
     ];
     let ly=py+50;
     for(const l of lines){
@@ -1730,6 +1730,7 @@ let mTgt=null;
 ovC.addEventListener('mousedown',e=>{
   startAudio();
   const cx_=ex(e.clientX), cy_=e.clientY;
+  if(showInfo){showInfo=false;return;}
   mTgt=hitTest(cx_,cy_);
   mouseDownTime=Date.now();
 
