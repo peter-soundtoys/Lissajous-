@@ -212,7 +212,7 @@ function applyFactoryPreset(){
 }
 
 // Run in the browser console to capture current state as a factory preset.
-// Copy the logged JSON and paste it as the FACTORY_PRESET value above.
+// It copies the result to your clipboard automatically — just paste into index.html line 192.
 window.captureForFactory = function(){
   const px=plotX(),py=plotY(),pw=plotW(),ph=plotH();
   const fp={
@@ -226,8 +226,9 @@ window.captureForFactory = function(){
     shapeFader, pitchFader, decayVal, xfadeVal, auxFader,
     clkVisShape, activeModule, scaleAug, scaleIdxF,
   };
-  console.log('Paste as FACTORY_PRESET value:\n'+JSON.stringify(fp, null, 2));
-  return fp;
+  const json=JSON.stringify(fp);
+  try{ copy(json); console.log('Copied to clipboard — paste as FACTORY_PRESET value at line 192.'); }
+  catch(e){ console.log('Paste as FACTORY_PRESET value at line 192:\n'+json); }
 };
 
 let presetOpen=false, presetAction=null, presetConfirmSlot=-1, activePresetSlot=-1;
