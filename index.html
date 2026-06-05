@@ -185,6 +185,51 @@ function saveToStorage(){
   try{ localStorage.setItem('lissajous-presets',JSON.stringify(PRESETS)); }catch(e){}
 }
 
+// ── Factory preset ─────────────────────────────────────────────────────────────
+// Dot positions as normalized fractions: nx ∈ [0,1] across plot width,
+// ny ∈ [0,1] with 1=top and 0=bottom (same convention as initDots).
+// Set to null to fall through to initDots() defaults for new users.
+const FACTORY_PRESET = null;
+
+function applyFactoryPreset(){
+  if(!FACTORY_PRESET) return;
+  const px=plotX(),py=plotY(),pw=plotW(),ph=plotH();
+  ['d0','d1','d3','d4','ds','dt','dsc'].forEach(k=>{
+    if(FACTORY_PRESET[k]!=null){
+      state[k].sx=px+pw*FACTORY_PRESET[k].nx;
+      state[k].sy=py+ph*(1-FACTORY_PRESET[k].ny);
+    }
+  });
+  if(FACTORY_PRESET.shapeFader!=null) shapeFader=FACTORY_PRESET.shapeFader;
+  if(FACTORY_PRESET.pitchFader!=null) pitchFader=FACTORY_PRESET.pitchFader;
+  if(FACTORY_PRESET.decayVal!=null) decayVal=FACTORY_PRESET.decayVal;
+  if(FACTORY_PRESET.xfadeVal!=null) xfadeVal=FACTORY_PRESET.xfadeVal;
+  if(FACTORY_PRESET.auxFader!=null) auxFader=FACTORY_PRESET.auxFader;
+  if(FACTORY_PRESET.clkVisShape!=null) clkVisShape=FACTORY_PRESET.clkVisShape;
+  if(FACTORY_PRESET.activeModule!=null) activeModule=FACTORY_PRESET.activeModule;
+  if(FACTORY_PRESET.scaleAug!=null) scaleAug=FACTORY_PRESET.scaleAug;
+  if(FACTORY_PRESET.scaleIdxF!=null) scaleIdxF=FACTORY_PRESET.scaleIdxF;
+}
+
+// Run in the browser console to capture current state as a factory preset.
+// Copy the logged JSON and paste it as the FACTORY_PRESET value above.
+window.captureForFactory = function(){
+  const px=plotX(),py=plotY(),pw=plotW(),ph=plotH();
+  const fp={
+    d0:{nx:(state.d0.sx-px)/pw, ny:1-(state.d0.sy-py)/ph},
+    d1:{nx:(state.d1.sx-px)/pw, ny:1-(state.d1.sy-py)/ph},
+    d3:{nx:(state.d3.sx-px)/pw, ny:1-(state.d3.sy-py)/ph},
+    d4:{nx:(state.d4.sx-px)/pw, ny:1-(state.d4.sy-py)/ph},
+    ds:{nx:(state.ds.sx-px)/pw, ny:1-(state.ds.sy-py)/ph},
+    dt:{nx:(state.dt.sx-px)/pw, ny:1-(state.dt.sy-py)/ph},
+    dsc:{nx:(state.dsc.sx-px)/pw, ny:1-(state.dsc.sy-py)/ph},
+    shapeFader, pitchFader, decayVal, xfadeVal, auxFader,
+    clkVisShape, activeModule, scaleAug, scaleIdxF,
+  };
+  console.log('Paste as FACTORY_PRESET value:\n'+JSON.stringify(fp, null, 2));
+  return fp;
+};
+
 let presetOpen=false, presetAction=null, presetConfirmSlot=-1, activePresetSlot=-1;
 let presetGroup=0;
 let presetHolding=false, presetHoldStart=0, presetHoldTimer=null;
@@ -230,7 +275,7 @@ function handlePresetGridTap(x,y){
     presetGroup=col; presetConfirmSlot=-1; return;
   }
   const idx=presetGroup*4+col;
-  if(!presetAction) return;
+  if(!presetAction||presetAction==='factory') return;
   if(presetConfirmSlot===idx){
     if(presetAction==='save'){ PRESETS[idx]=captureState(); saveToStorage(); activePresetSlot=idx; }
     else if(presetAction==='load'&&PRESETS[idx]){ applyStateObj(PRESETS[idx]); activePresetSlot=idx; }
@@ -1032,13 +1077,15 @@ function drawOverlay(){
 
   // ── Top buttons ──
   if(presetOpen){
-    // 3 buttons: SAVE / LOAD / EXIT
-    const labels=['SAVE','LOAD','EXIT'];
-    for(let i=0;i<3;i++){
-      const bx=i*(W/3), bw=W/3;
-      const isActive=(i===0&&presetAction==='save')||(i===1&&presetAction==='load');
+    const hasFP=FACTORY_PRESET!==null;
+    const labels=hasFP?['SAVE','LOAD','FACTORY','EXIT']:['SAVE','LOAD','EXIT'];
+    const btnCount=labels.length;
+    for(let i=0;i<btnCount;i++){
+      const bx=i*(W/btnCount), bw=W/btnCount;
+      const isActive=(i===0&&presetAction==='save')||(i===1&&presetAction==='load')||(hasFP&&i===2&&presetAction==='factory');
       if(isActive){ovX.fillStyle='rgba(255,255,255,0.12)';ovX.fillRect(bx+1,1,bw-2,TOP_H-2);}
-      if(i===2){ovX.fillStyle='rgba(255,100,100,0.75)';}
+      if(i===btnCount-1){ovX.fillStyle='rgba(255,100,100,0.75)';}
+      else if(hasFP&&i===2){ovX.fillStyle=isActive?'rgba(255,180,0,1.0)':'rgba(255,255,255,0.5)';}
       else{ovX.fillStyle=isActive?'rgba(255,255,0,1.0)':'rgba(255,255,255,0.5)';}
       ovX.font='bold 11px monospace';ovX.textAlign='center';
       ovX.fillText(labels[i],bx+bw/2,TOP_H*0.65);
@@ -1190,13 +1237,13 @@ function drawOverlay(){
     const flashOn=Math.floor(presetFlashT/5)%2===0;
 
     // Confirm hint in XY center — small, static
-    if(presetConfirmSlot>=0){
+    if(presetConfirmSlot>=0||presetAction==='factory'){
       const tx=plotX()+plotW()/2, ty=plotY()+plotH()/2;
       const fs=Math.round(Math.min(W*0.055,22));
       ovX.textAlign='center';
       ovX.fillStyle='rgba(255,255,255,0.6)';
       ovX.font=`${fs}px monospace`;
-      ovX.fillText(presetAction==='save'?'SAVE?':'LOAD?', tx, ty);
+      ovX.fillText(presetAction==='save'?'SAVE?':presetAction==='factory'?'FACTORY RESET?':'LOAD?', tx, ty);
     }
 
     // Row 0: preset slots
@@ -1303,10 +1350,15 @@ ovC.addEventListener('touchstart',e=>{
 
     if(tgt==='topBtn'){
       if(presetOpen){
-        // SAVE / LOAD / EXIT
-        const idx=Math.floor(cx_/(W/3));
+        const hasFP=FACTORY_PRESET!==null;
+        const btnCount=hasFP?4:3;
+        const idx=Math.floor(cx_/(W/btnCount));
         if(idx===0){ presetAction='save'; presetConfirmSlot=-1; }
         else if(idx===1){ presetAction='load'; presetConfirmSlot=-1; }
+        else if(hasFP&&idx===2){
+          if(presetAction==='factory'){ applyFactoryPreset(); closePresets(); }
+          else{ presetAction='factory'; presetConfirmSlot=-1; }
+        }
         else { closePresets(); }
       } else {
         presetHoldBtnX=cx_;
@@ -1679,9 +1731,15 @@ ovC.addEventListener('mousedown',e=>{
 
   if(mTgt==='topBtn'){
     if(presetOpen){
-      const idx=Math.floor(cx_/(W/3));
+      const hasFP=FACTORY_PRESET!==null;
+      const btnCount=hasFP?4:3;
+      const idx=Math.floor(cx_/(W/btnCount));
       if(idx===0){ presetAction='save'; presetConfirmSlot=-1; }
       else if(idx===1){ presetAction='load'; presetConfirmSlot=-1; }
+      else if(hasFP&&idx===2){
+        if(presetAction==='factory'){ applyFactoryPreset(); closePresets(); }
+        else{ presetAction='factory'; presetConfirmSlot=-1; }
+      }
       else { closePresets(); }
     } else {
       presetHoldBtnX=cx_;
@@ -1833,6 +1891,7 @@ window.addEventListener('mouseup',e=>{
 });
 
 resize(); initDots();
+if(FACTORY_PRESET) applyFactoryPreset();
 if(!PRESETS[0]){ PRESETS[0]=captureState(); saveToStorage(); }
 else { applyStateObj(PRESETS[0]); }
 activePresetSlot=0;
