@@ -1058,20 +1058,19 @@ function drawOverlay(){
   if(presetOpen){
     // ── Preset grid at bottom: 2 rows × 4 cols — fully opaque ──
     const g=presetGridRect();
+    ovX.fillStyle='rgb(18,18,18)';
+    ovX.fillRect(g.x,g.y,g.w,g.h);
     const cols=4,cw=g.w/cols,rowH=g.h/2;
     const flashOn=Math.floor(presetFlashT/5)%2===0;
 
-    // Confirm text in XY plot center
+    // Small static confirm hint in XY plot center
     if(presetConfirmSlot>=0){
       const tx=plotX()+plotW()/2, ty=plotY()+plotH()/2;
-      const fs=Math.round(Math.min(W*0.1,52));
+      const fs=Math.round(Math.min(W*0.038,15));
       ovX.textAlign='center';
-      ovX.fillStyle=flashOn?'rgba(255,255,255,0.95)':'rgba(255,255,255,0.2)';
-      ovX.font=`bold ${fs}px monospace`;
-      ovX.fillText(presetAction==='save'?'SAVE?':'LOAD?', tx, ty);
-      ovX.font=`${Math.round(fs*0.5)}px monospace`;
-      ovX.fillStyle='rgba(255,255,255,0.65)';
-      ovX.fillText('tap to confirm', tx, ty+Math.round(fs*0.8));
+      ovX.fillStyle='rgba(255,255,255,0.55)';
+      ovX.font=`${fs}px monospace`;
+      ovX.fillText(presetAction==='save'?'SAVE? — tap again to confirm':'LOAD? — tap again to confirm', tx, ty);
     }
 
     // Row 0: preset slots for current group
