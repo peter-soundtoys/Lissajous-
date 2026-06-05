@@ -1032,17 +1032,17 @@ function drawOverlay(){
 
   // ── Top buttons ──
   if(presetOpen){
-    // 3 buttons: SAVE / LOAD / EXIT
+    // 3 buttons: SAVE / LOAD / EXIT — fully opaque
     const labels=['SAVE','LOAD','EXIT'];
     for(let i=0;i<3;i++){
       const bx=i*(W/3), bw=W/3;
       const isActive=(i===0&&presetAction==='save')||(i===1&&presetAction==='load');
-      if(isActive){ovX.fillStyle='rgba(255,255,255,0.12)';ovX.fillRect(bx+1,1,bw-2,TOP_H-2);}
-      if(i===2){ovX.fillStyle='rgba(255,100,100,0.75)';}
-      else{ovX.fillStyle=isActive?'rgba(255,255,0,1.0)':'rgba(255,255,255,0.5)';}
+      ovX.fillStyle=i===2?'rgb(100,25,25)':isActive?(i===0?'rgb(180,80,0)':'rgb(0,90,160)'):'rgb(35,35,35)';
+      ovX.fillRect(bx,0,bw,TOP_H);
+      ovX.fillStyle=i===2?'rgba(255,140,140,1)':isActive?'rgba(255,255,0,1)':'rgba(255,255,255,0.75)';
       ovX.font='bold 11px monospace';ovX.textAlign='center';
       ovX.fillText(labels[i],bx+bw/2,TOP_H*0.65);
-      if(i>0){ovX.strokeStyle='rgba(255,255,255,0.07)';ovX.lineWidth=1;ovX.beginPath();ovX.moveTo(bx,0);ovX.lineTo(bx,TOP_H);ovX.stroke();}
+      if(i>0){ovX.strokeStyle='rgba(0,0,0,0.4)';ovX.lineWidth=1;ovX.beginPath();ovX.moveTo(bx,0);ovX.lineTo(bx,TOP_H);ovX.stroke();}
     }
   } else {
     const tpW=W/4;
@@ -1056,13 +1056,23 @@ function drawOverlay(){
   }
 
   if(presetOpen){
-    // ── Preset grid at bottom: 2 rows × 4 cols ──
+    // ── Preset grid at bottom: 2 rows × 4 cols — fully opaque ──
     const g=presetGridRect();
-    ovX.fillStyle='rgba(0,0,0,0.88)';
-    ovX.fillRect(g.x,g.y,g.w,g.h);
-
     const cols=4,cw=g.w/cols,rowH=g.h/2;
     const flashOn=Math.floor(presetFlashT/5)%2===0;
+
+    // Confirm text in XY plot center
+    if(presetConfirmSlot>=0){
+      const tx=plotX()+plotW()/2, ty=plotY()+plotH()/2;
+      const fs=Math.round(Math.min(W*0.1,52));
+      ovX.textAlign='center';
+      ovX.fillStyle=flashOn?'rgba(255,255,255,0.95)':'rgba(255,255,255,0.2)';
+      ovX.font=`bold ${fs}px monospace`;
+      ovX.fillText(presetAction==='save'?'SAVE?':'LOAD?', tx, ty);
+      ovX.font=`${Math.round(fs*0.5)}px monospace`;
+      ovX.fillStyle='rgba(255,255,255,0.65)';
+      ovX.fillText('tap to confirm', tx, ty+Math.round(fs*0.8));
+    }
 
     // Row 0: preset slots for current group
     for(let c=0;c<cols;c++){
@@ -1071,31 +1081,19 @@ function drawOverlay(){
       const hasPre=!!PRESETS[idx];
       const isConfirm=(presetConfirmSlot===idx);
       const isActive=(idx===activePresetSlot);
-      if(isConfirm){
-        ovX.fillStyle=presetAction==='save'?`rgba(255,140,0,${flashOn?0.5:0.15})`:`rgba(0,160,255,${flashOn?0.5:0.15})`;
-      } else if(isActive){
-        ovX.fillStyle='rgba(255,255,0,0.12)';
-      } else {
-        ovX.fillStyle=hasPre?'rgba(255,255,255,0.07)':'rgba(255,255,255,0.02)';
-      }
-      ovX.fillRect(cx+3,cy+3,cw-6,rowH-6);
-      ovX.strokeStyle=isConfirm?(flashOn?'rgba(255,255,255,0.9)':'rgba(255,255,255,0.25)'):isActive?'rgba(255,255,0,0.7)':hasPre?'rgba(255,255,255,0.22)':'rgba(255,255,255,0.07)';
-      ovX.lineWidth=1;ovX.strokeRect(cx+3,cy+3,cw-6,rowH-6);
+      ovX.fillStyle=isConfirm
+        ?(presetAction==='save'?(flashOn?'rgb(200,90,0)':'rgb(100,45,0)'):(flashOn?'rgb(0,110,190)':'rgb(0,55,95)'))
+        :isActive?'rgb(45,45,15)':'rgb(35,35,35)';
+      ovX.fillRect(cx+2,cy+2,cw-4,rowH-4);
+      ovX.strokeStyle=isConfirm?(flashOn?'rgba(255,255,255,1)':'rgba(255,255,255,0.3)'):isActive?'rgba(255,255,0,0.9)':hasPre?'rgba(255,255,255,0.4)':'rgba(255,255,255,0.12)';
+      ovX.lineWidth=1.5;ovX.strokeRect(cx+2,cy+2,cw-4,rowH-4);
       ovX.textAlign='center';
-      if(isConfirm){
-        ovX.fillStyle=flashOn?'rgba(255,255,255,0.95)':'rgba(255,255,255,0.35)';
-        ovX.font='bold 9px monospace';
-        ovX.fillText(presetAction==='save'?'SAVE?':'LOAD?', cx+cw/2, cy+rowH/2-5);
-        ovX.font='7px monospace';ovX.fillStyle='rgba(255,255,255,0.4)';
-        ovX.fillText('tap to confirm', cx+cw/2, cy+rowH/2+7);
-      } else {
-        ovX.fillStyle=hasPre?'rgba(255,255,255,0.75)':'rgba(255,255,255,0.18)';
-        ovX.font='10px monospace';
-        ovX.fillText((idx+1).toString(), cx+cw/2, cy+rowH/2+4);
-        if(hasPre){
-          ovX.beginPath();ovX.arc(cx+cw-11,cy+11,3,0,Math.PI*2);
-          ovX.fillStyle='rgba(255,220,0,0.85)';ovX.fill();
-        }
+      ovX.fillStyle='rgba(255,255,255,0.9)';
+      ovX.font='10px monospace';
+      ovX.fillText((idx+1).toString(), cx+cw/2, cy+rowH/2+4);
+      if(hasPre){
+        ovX.beginPath();ovX.arc(cx+cw-11,cy+11,3,0,Math.PI*2);
+        ovX.fillStyle='rgba(255,220,0,0.9)';ovX.fill();
       }
     }
 
@@ -1104,11 +1102,11 @@ function drawOverlay(){
     for(let c=0;c<cols;c++){
       const cx=g.x+c*cw, cy=g.y+rowH;
       const isSel=(c===presetGroup);
-      ovX.fillStyle=isSel?'rgba(255,255,0,0.12)':'rgba(255,255,255,0.02)';
-      ovX.fillRect(cx+3,cy+3,cw-6,rowH-6);
-      ovX.strokeStyle=isSel?'rgba(255,255,0,0.7)':'rgba(255,255,255,0.15)';
-      ovX.lineWidth=1;ovX.strokeRect(cx+3,cy+3,cw-6,rowH-6);
-      ovX.fillStyle=isSel?'rgba(255,255,0,1.0)':'rgba(255,255,255,0.5)';
+      ovX.fillStyle=isSel?'rgb(45,45,15)':'rgb(35,35,35)';
+      ovX.fillRect(cx+2,cy+2,cw-4,rowH-4);
+      ovX.strokeStyle=isSel?'rgba(255,255,0,0.9)':'rgba(255,255,255,0.15)';
+      ovX.lineWidth=1.5;ovX.strokeRect(cx+2,cy+2,cw-4,rowH-4);
+      ovX.fillStyle=isSel?'rgba(255,255,0,1.0)':'rgba(255,255,255,0.6)';
       ovX.font='bold 11px monospace';ovX.textAlign='center';
       ovX.fillText(grpLabels[c], cx+cw/2, cy+rowH/2+4);
     }
@@ -1677,6 +1675,8 @@ ovC.addEventListener('mousedown',e=>{
   const cx_=ex(e.clientX), cy_=e.clientY;
   mTgt=hitTest(cx_,cy_);
   mouseDownTime=Date.now();
+
+  if(presetOpen&&mTgt!=='topBtn'&&mTgt!=='presetGrid'){closePresets();mTgt=null;return;}
 
   if(mTgt==='topBtn'){
     if(presetOpen){
