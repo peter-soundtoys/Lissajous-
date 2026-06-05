@@ -169,6 +169,7 @@ let coastingDots={}; // {dotKey:{x:bool,y:bool}} — per-dot coast state
 let pendingFrictionOff=null; // {id,dot,x,y,startX,startY,t}
 let xAttractTarget=null,yAttractTarget=null; // smooth fader-tap animation targets
 let showInfo=false;
+let showStartup=true;
 let blocks=[],blockTouch=null,lastTapT=0,lastTapX=0,lastTapY=0;
 
 function selectedDot(){ return MODULE_DOT[activeModule]||null; }
@@ -1289,6 +1290,19 @@ function drawOverlay(){
       ovX.fillText(grpLabels[c], cx+cw/2, cy+rowH/2+4);
     }
   }
+
+  if(showStartup){
+    ovX.fillStyle='rgba(0,0,0,0.85)';
+    ovX.fillRect(0,0,W,H);
+    ovX.textAlign='center';
+    const cy=H/2;
+    ovX.fillStyle='rgba(255,255,255,0.92)';
+    ovX.font=`bold ${Math.round(Math.min(W*0.06,26))}px monospace`;
+    ovX.fillText('LISSAJOUS',W/2,cy-18);
+    ovX.fillStyle='rgba(255,255,255,0.45)';
+    ovX.font=`${Math.round(Math.min(W*0.038,16))}px monospace`;
+    ovX.fillText('tap to start',W/2,cy+14);
+  }
 }
 
 function hitBlock(x,y){
@@ -1347,6 +1361,7 @@ function handleModuleSelect(x,y){
 
 ovC.addEventListener('touchstart',e=>{
   e.preventDefault();startAudio();unlockAudio();
+  if(showStartup){showStartup=false;return;}
   if(showInfo){showInfo=false;return;}
   for(const t of e.changedTouches){
     const cx_=ex(t.clientX), cy_=t.clientY;
@@ -1730,6 +1745,7 @@ let mTgt=null;
 ovC.addEventListener('mousedown',e=>{
   startAudio();
   const cx_=ex(e.clientX), cy_=e.clientY;
+  if(showStartup){showStartup=false;return;}
   if(showInfo){showInfo=false;return;}
   mTgt=hitTest(cx_,cy_);
   mouseDownTime=Date.now();
