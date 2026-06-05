@@ -217,8 +217,8 @@ function checkPresetHold(){
   if(presetOpen) presetFlashT++;
 }
 function presetGridRect(){
-  const rowH=Math.round(H*0.13);
-  return{x:0,y:H-rowH*2,w:W,h:rowH*2};
+  const rowH=Math.round((H-botY())/2);
+  return{x:0,y:botY(),w:W,h:rowH*2};
 }
 function handlePresetGridTap(x,y){
   const g=presetGridRect();
@@ -1032,17 +1032,17 @@ function drawOverlay(){
 
   // ── Top buttons ──
   if(presetOpen){
-    // 3 buttons: SAVE / LOAD / EXIT — fully opaque
+    // 3 buttons: SAVE / LOAD / EXIT
     const labels=['SAVE','LOAD','EXIT'];
     for(let i=0;i<3;i++){
       const bx=i*(W/3), bw=W/3;
       const isActive=(i===0&&presetAction==='save')||(i===1&&presetAction==='load');
-      ovX.fillStyle=i===2?'rgb(100,25,25)':isActive?(i===0?'rgb(180,80,0)':'rgb(0,90,160)'):'rgb(35,35,35)';
-      ovX.fillRect(bx,0,bw,TOP_H);
-      ovX.fillStyle=i===2?'rgba(255,140,140,1)':isActive?'rgba(255,255,0,1)':'rgba(255,255,255,0.75)';
+      if(isActive){ovX.fillStyle='rgba(255,255,255,0.12)';ovX.fillRect(bx+1,1,bw-2,TOP_H-2);}
+      if(i===2){ovX.fillStyle='rgba(255,100,100,0.75)';}
+      else{ovX.fillStyle=isActive?'rgba(255,255,0,1.0)':'rgba(255,255,255,0.5)';}
       ovX.font='bold 11px monospace';ovX.textAlign='center';
       ovX.fillText(labels[i],bx+bw/2,TOP_H*0.65);
-      if(i>0){ovX.strokeStyle='rgba(0,0,0,0.4)';ovX.lineWidth=1;ovX.beginPath();ovX.moveTo(bx,0);ovX.lineTo(bx,TOP_H);ovX.stroke();}
+      if(i>0){ovX.strokeStyle='rgba(255,255,255,0.07)';ovX.lineWidth=1;ovX.beginPath();ovX.moveTo(bx,0);ovX.lineTo(bx,TOP_H);ovX.stroke();}
     }
   } else {
     const tpW=W/4;
@@ -1695,7 +1695,15 @@ ovC.addEventListener('mousedown',e=>{
   else if(mTgt==='shScope'){
     shScopeInteract={startY:cy_,startScale:shScopeScale,moved:false,startTime:Date.now(),id:'mouse'};
   }
-  else if(mTgt==='botBtn'){ selectModule(BOTTOM_MODS[Math.max(0,Math.min(2,Math.floor(cx_/(W/3))))].key); }
+  else if(mTgt==='botBtn'){
+    const bIdx=Math.max(0,Math.min(2,Math.floor(cx_/(W/3))));
+    const btnH_=H-(botY()+BOT_H);
+    const isPlay=bIdx===0&&cx_<W/3*0.38&&cy_>H-btnH_*0.5;
+    const isInfo=bIdx===2&&cx_>W-W/3*0.38&&cy_>H-btnH_*0.5;
+    if(isPlay){toggleMute();}
+    else if(isInfo){showInfo=!showInfo;}
+    else{selectModule(BOTTOM_MODS[bIdx].key);}
+  }
   else if(mTgt==='plot'){
     const bHit=hitBlock(cx_,cy_);
     if(bHit>=0){
