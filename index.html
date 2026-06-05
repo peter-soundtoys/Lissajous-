@@ -192,14 +192,14 @@ function saveToStorage(){
 // Set to null to fall through to initDots() defaults for new users.
 const FACTORY_PRESET = {
   d0: {nx:1,    ny:0.1},  // LFO
-  d1: {nx:0.5,  ny:0.5},  // CLK
+  d1: {nx:1,    ny:0.5},  // CLK
   d3: {nx:0.2,  ny:0.5},  // VCO
   d4: {nx:0,    ny:0.5},  // ENV
   ds: {nx:0.17, ny:0.0},  // S&H (default)
   dt: {nx:0.95, ny:0.8},  // TIME (default)
   dsc:{nx:0,    ny:0.7},  // SCALE
   shapeFader:1, pitchFader:0.1, decayVal:0, xfadeVal:0, auxFader:0.5,
-  clkVisShape:0.5, activeModule:'lfo', scaleAug:0, scaleIdxF:0,
+  clkVisShape:1, activeModule:'lfo', scaleAug:0, scaleIdxF:0,
 };
 
 function applyFactoryPreset(){
