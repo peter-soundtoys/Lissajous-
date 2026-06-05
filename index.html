@@ -170,7 +170,7 @@ let coastDot=null; // dot key that was coasting when friction was removed
 let pendingFrictionOff=null; // {id,x,y,startX,startY,t}
 let xAttractTarget=null,yAttractTarget=null; // smooth fader-tap animation targets
 let showInfo=false;
-let blocks=[],lastTapT=0,lastTapX=0,lastTapY=0;
+let blocks=[],blockTouch=null,lastTapT=0,lastTapX=0,lastTapY=0;
 
 function selectedDot(){ return MODULE_DOT[activeModule]||null; }
 
@@ -1242,6 +1242,24 @@ function hitBlock(x,y){
   }
   return -1;
 }
+function pushOtherBlocks(dragIdx){
+  const px_=plotX(),py_=plotY(),pw_=plotW(),ph_=plotH();
+  for(let iter=0;iter<4;iter++){
+    const ba=blocks[dragIdx];
+    for(let i=0;i<blocks.length;i++){
+      if(i===dragIdx)continue;
+      const bb=blocks[i];
+      const ox=BLOCK_HALF*2-Math.abs(ba.sx-bb.sx);
+      const oy=BLOCK_HALF*2-Math.abs(ba.sy-bb.sy);
+      if(ox>0&&oy>0){
+        if(ox<=oy){const s=Math.sign(bb.sx-ba.sx)||1;bb.sx+=s*ox;}
+        else{const s=Math.sign(bb.sy-ba.sy)||1;bb.sy+=s*oy;}
+        bb.sx=Math.max(px_+BLOCK_HALF,Math.min(px_+pw_-BLOCK_HALF,bb.sx));
+        bb.sy=Math.max(py_+BLOCK_HALF,Math.min(py_+ph_-BLOCK_HALF,bb.sy));
+      }
+    }
+  }
+}
 
 // ── Gesture system ────────────────────────────────────────────────────────────
 const TAP_MS=300,THROW_SCALE=1.0,COAST_FRICTION=0.99;
@@ -1349,7 +1367,13 @@ ovC.addEventListener('touchstart',e=>{
       else{selectModule(BOTTOM_MODS[bIdx].key);}
     }
     else if(tgt==='plot'){
-      if(hitBlock(cx_,cy_)<0){
+      const bHit=hitBlock(cx_,cy_);
+      if(bHit>=0){
+        blockTouch={idx:bHit,id:t.identifier,startX:cx_,startY:cy_,x:cx_,y:cy_,
+                    startTime:Date.now(),vx:0,vy:0,lastTime:performance.now(),moved:false};
+        touches[t.identifier].tgt='block';
+        blocks[bHit].vx=0;blocks[bHit].vy=0;
+      } else {
         const allDots=[
           {k:'d0',m:'lfo'},{k:'d1',m:'clk'},{k:'d3',m:'vco'},
           ...(activeModule==='time'?[{k:'dt',m:'time'}]:[]),
@@ -1393,6 +1417,18 @@ ovC.addEventListener('touchmove',e=>{
         shScopeScale=Math.max(0.125,Math.min(8,shScopeInteract.startScale*Math.pow(2,-dy/50)));
       }
     }
+    else if(tc.tgt==='block'&&blockTouch&&blockTouch.id===t.identifier){
+      const now=performance.now(),dt2=Math.max(1,now-blockTouch.lastTime);
+      blockTouch.vx=(cx_-blockTouch.x)/dt2*16;blockTouch.vy=(cy_-blockTouch.y)/dt2*16;
+      blockTouch.lastTime=now;blockTouch.x=cx_;blockTouch.y=cy_;
+      if(Math.hypot(cx_-blockTouch.startX,cy_-blockTouch.startY)>6)blockTouch.moved=true;
+      if(blockTouch.moved&&blocks[blockTouch.idx]){
+        const px_=plotX(),py_=plotY(),pw_=plotW(),ph_=plotH();
+        blocks[blockTouch.idx].sx=Math.max(px_+BLOCK_HALF,Math.min(px_+pw_-BLOCK_HALF,cx_));
+        blocks[blockTouch.idx].sy=Math.max(py_+BLOCK_HALF,Math.min(py_+ph_-BLOCK_HALF,cy_));
+        pushOtherBlocks(blockTouch.idx);
+      }
+    }
     else if(tc.tgt==='pitchStrip'){yAttractTarget=null;applyMove(tc.tgt,cx_,cy_);}
     else if(tc.tgt==='fader1'){const ft=fineTune[t.identifier];applyMove('fader1',ft?cx_-(cy_-ft.startY)*2:cx_,cy_);}
     else if(tc.tgt==='fader0'){xAttractTarget=null;const ft=fineTune[t.identifier];applyMove('fader0',ft?cx_-(cy_-ft.startY)*2:cx_,cy_);}
@@ -1416,6 +1452,11 @@ ovC.addEventListener('touchmove',e=>{
 ovC.addEventListener('touchend',e=>{
   for(const t of e.changedTouches){
     const cx_e=ex(t.clientX),cy_e=t.clientY;
+    if(blockTouch&&blockTouch.id===t.identifier){
+      if(!blockTouch.moved){blocks.splice(blockTouch.idx,1);}
+      else if(blocks[blockTouch.idx]){blocks[blockTouch.idx].vx=blockTouch.vx;blocks[blockTouch.idx].vy=blockTouch.vy;}
+      blockTouch=null;delete touches[t.identifier];delete fineTune[t.identifier];continue;
+    }
     const tcE=touches[t.identifier];
     if(tcE&&tcE.tgt==='plot'&&!tcE.moved&&Date.now()-tcE.startTime<TAP_MS){
       const now=Date.now();
@@ -1486,7 +1527,9 @@ function updateGlide(){
 
   // ── Block physics ──
   if(blocks.length>0){
+    const bDrag=blockTouch&&blockTouch.moved?blockTouch.idx:-1;
     for(let i=0;i<blocks.length;i++){
+      if(i===bDrag)continue;
       const b=blocks[i];
       b.vx*=BLOCK_FRICTION;b.vy*=BLOCK_FRICTION;
       b.sx+=b.vx;b.sy+=b.vy;
