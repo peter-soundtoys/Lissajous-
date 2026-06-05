@@ -1785,11 +1785,11 @@ window.addEventListener('mousemove',e=>{
       shScopeAutoScale=false;
       shScopeScale=Math.max(0.125,Math.min(8,shScopeInteract.startScale*Math.pow(2,-dy/50)));
     }
-  } else if(plotTouch&&plotTouch.id==='mouse'){
+  } else if(mTgt==='plot'&&plotTouch&&plotTouch.id==='mouse'){
     const now=performance.now(),dt2=Math.max(1,now-(plotTouch.lastTime||now));
     plotTouch.vx=(cx_-plotTouch.x)/(dt2/16);plotTouch.vy=(cy_-plotTouch.y)/(dt2/16);
     plotTouch.lastTime=now;plotTouch.x=cx_;plotTouch.y=cy_;
-  } else if(!['topBtn','presetGrid','botBtn'].includes(mTgt)){
+  } else if(!['topBtn','presetGrid','botBtn','plot'].includes(mTgt)){
     applyMove(mTgt,cx_,cy_);
   }
 });
