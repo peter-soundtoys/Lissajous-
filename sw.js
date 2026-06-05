@@ -1,4 +1,4 @@
-const CACHE = 'lissajous-v22';
+const CACHE = 'lissajous-v23';
 const ASSETS = [
   './index.html',
   './manifest.json',
@@ -23,6 +23,22 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
+  // Network-first for HTML navigation so updates are always visible
+  if(e.request.destination === 'document') {
+    e.respondWith(
+      fetch(e.request)
+        .then(resp => {
+          if(resp.ok) {
+            const clone = resp.clone();
+            caches.open(CACHE).then(c => c.put(e.request, clone));
+          }
+          return resp;
+        })
+        .catch(() => caches.match(e.request))
+    );
+    return;
+  }
+  // Cache-first for everything else (manifest, icons)
   e.respondWith(
     caches.match(e.request).then(cached => cached || fetch(e.request))
   );
