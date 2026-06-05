@@ -613,7 +613,7 @@ function startAudio(){
 }
 function unlockAudio(){startAudio();}
 ['touchend','touchstart','mousedown'].forEach(ev=>document.body.addEventListener(ev,unlockAudio,false));
-setInterval(()=>{if(audioCtx&&audioCtx.state!=='running')audioCtx.resume().catch(()=>{});},2000);
+setInterval(()=>{if(audioCtx&&audioCtx.state!=='running')startAudio();},2000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)startAudio();});
 
 function updateAudio(){
@@ -1168,14 +1168,21 @@ function drawOverlay(){
   }
 
   // ── OSC dots ──
-  const frOff=(throwFrictionOffX||throwFrictionOffY)&&coastDot!==null;
-  const frPulse=frOff?(Math.sin(performance.now()*0.004)+1)*0.5:0;
-  const frColor=`rgba(255,${Math.round(200+55*frPulse)},${Math.round(200*frPulse)},0.95)`;
+  const frPulse=(Math.sin(performance.now()*0.004)+1)*0.5;
   const botDots=[{k:'d0',m:'lfo'},{k:'d1',m:'clk'},{k:'d3',m:'vco'}];
   for(const {k,m} of botDots){
     const d=state[k],isSel=(activeModule===m);
+    const isCoast=k===coastDot&&(throwFrictionOffX||throwFrictionOffY);
     ovX.beginPath();ovX.arc(d.sx,d.sy,6,0,Math.PI*2);
-    ovX.fillStyle=(frOff&&k===coastDot)?frColor:isSel?'rgba(255,255,0,1.0)':'rgba(255,255,255,0.25)';
+    if(isCoast&&isSel){
+      ovX.fillStyle=`rgba(255,255,${Math.round(255*frPulse)},1.0)`;
+    } else if(isCoast){
+      ovX.fillStyle=`rgba(255,255,255,${(0.3+0.6*frPulse).toFixed(2)})`;
+    } else if(isSel){
+      ovX.fillStyle='rgba(255,255,0,1.0)';
+    } else {
+      ovX.fillStyle='rgba(255,255,255,0.25)';
+    }
     ovX.fill();
   }
   const topDots=[{k:'dt',m:'time'},{k:'dsc',m:'scale'},{k:'d4',m:'env'}];
@@ -1431,7 +1438,7 @@ ovC.addEventListener('touchmove',e=>{
       pendingFrictionOff.x=cx_;pendingFrictionOff.y=cy_;
       if(Math.hypot(cx_-pendingFrictionOff.startX,cy_-pendingFrictionOff.startY)>6){
         // Became a drag — cancel coasting and transition to attract
-        throwFrictionOffX=false;throwFrictionOffY=false;
+        throwFrictionOffX=false;throwFrictionOffY=false;coastDot=null;
         plotTouch={x:cx_,y:cy_,id:t.identifier,active:true,direct:false,vx:0,vy:0,lastTime:performance.now(),coasting:false};
         pendingFrictionOff=null;
       }
