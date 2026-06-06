@@ -191,16 +191,16 @@ function saveToStorage(){
 // ny ∈ [0,1] with 1=top and 0=bottom (same convention as initDots).
 // Set to null to fall through to initDots() defaults for new users.
 const FACTORY_PRESET = {
-  d0: {nx:1,    ny:0.1},  // LFO
-  d1: {nx:1,    ny:0.5},  // CLK
-  d3: {nx:0.2,  ny:0.5},  // VCO
-  d4: {nx:0,    ny:0.5},  // ENV
-  ds: {nx:0.17, ny:0.0},  // S&H (default)
-  dt: {nx:0.95, ny:0.8},  // TIME (default)
-  dsc:{nx:0,    ny:0.7},  // SCALE
-  shapeFader:1, pitchFader:0.1, decayVal:0, xfadeVal:0, auxFader:0.5,
-  clkVisShape:1, activeModule:'lfo', scaleAug:0, scaleIdxF:0,
-};
+   "d0":{"nx":0.1132596685082873,"ny":0.22491349480968859},
+   "d1":{"nx":0.5220994475138122,"ny":0.32179930795847755},
+   "d3":{"nx":0.19337016574585636,"ny":0.5847750865051904},
+   "d4":{"nx":0.3370165745856354,"ny":0.5259515570934257},
+   "ds":{"nx":0.17,"ny":0},
+   "dt":{"nx":0.95,"ny":0.8},
+   "dsc":{"nx":0.11602209944751381,"ny":0.7681660899653979},
+   "shapeFader":0.5220994475138122,"pitchFader":0.32179930795847755,"decayVal":0,"xfadeVal":0,
+  "auxFader":0.5,"clkVisShape":0.5220994475138122,"activeModule":"clk","scaleAug":0,"scaleIdxF":1.6228373702422145,
+  };
 
 function applyFactoryPreset(){
   if(!FACTORY_PRESET) return;
